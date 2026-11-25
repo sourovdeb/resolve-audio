@@ -1,137 +1,51 @@
-# Voice Macro 0.3
+# VoiceMacro 0.4
 
-For Resolve Studio 21. Windows 10/11.
+For DaVinci Resolve Studio 21 on Windows. Open [START-HERE.html](START-HERE.html) for installation, mapping, and the steps for each Resolve menu.
 
-**This is a controller prototype.**
-It uses Fairlight's EQ and Dynamics.
-It sends mouse and keyboard input.
-Audio stays inside Resolve.
+## Install
 
-**Setup comes before knob control.**
-Windows/Resolve operation remains untested here.
-Audio improvement remains unmeasured.
+1. Extract the whole ZIP.
+2. Close Resolve and VoiceMacro.
+3. Run `install\Install-VoiceMacro.cmd`.
+4. Restart Resolve Studio.
+5. Open **Workspace → Workflow Integrations → VoiceMacro**.
 
-## Start
+The installer also adds **Workspace → Scripts → VoiceMacro** for the current user. The ZIP includes `VoiceMacro.exe` for running without installation. The launcher uses Resolve's Workflow Integration format. The app uses .NET Framework 4.8. Windows and Resolve testing remains pending.
 
-1. Extract the ZIP.
-2. Open **START-HERE.html**.
-3. Run **VoiceMacro.exe**.
-4. Complete **Recipe** setup.
-5. Map seven fields through **Setup**.
-6. Choose **Verify mappings**.
-7. Adjust knobs; click **Apply**.
+## Controls
 
-Windows supplies .NET Framework 4.8.
-Python, Electron, and accounts aren't required.
-The application makes no network requests.
-The executable has no signing certificate.
-
-## Knobs
-
-| Knob | Changes |
+| Control | Use |
 |---|---|
-| Depth | Body boost; mud reduction |
-| Presence | Presence boost; treble shelf |
-| Control | Threshold; compression ratio; makeup gain |
+| Depth, Presence, Control | Shape voice or scale a WAV-derived match. |
+| Track profiles | Copy and paste mapped voice, EQ, compressor, or fader values. |
+| Match WAV | Match voice, EQ, or level. Create a new WAV or load a curve for the knobs. |
+| Resolve tools | Find the built-in capture, paste, and save commands. |
+| Save | Store knobs and the loaded match curve as JSON. |
 
-After verification, enable **Apply on release**.
-Drag vertically; release to apply.
-Arrow keys adjust each knob.
-Shift reduces mouse sensitivity.
-Keep the EQ/Dynamics windows open.
-Keep hands off during application.
-Escape stops the operation.
+For direct Fairlight processing, configure the band frequencies and compressor switches in **Recipe**. Map the numeric fields in **Setup** and verify each group. **Apply** writes mapped values and reads them back. The fader mapping is optional and operates through **Track profiles**. For full module copying, use Resolve's mixer graph context menus. For saving a Resolve preset, use **Fairlight → Presets Library**. For a mixer snapshot, use **Fairlight → Automation → Mix List → Save Mix**.
 
-Changes take several seconds.
-This isn't sample-by-sample knob automation.
-The processing itself remains in Fairlight.
-Closing Voice Macro preserves applied settings.
+## Match WAVs with Python
 
-## Save
+Requirements for WAV matching: Python 3.9+ and FFmpeg with `ffprobe` on PATH. The `install\Install-Matcher-Tools.cmd` helper uses Windows Package Manager. Restart Resolve after installing dependencies. The matcher runs without models or network access.
 
-**Save** stores knob positions as JSON.
-**Load** restores those positions.
-Click **Apply** after loading.
-JSON isn't a Fairlight preset.
+```powershell
+py -3 matcher\match_voice.py profile "reference.wav" --output "Reference-Profile.json"
+py -3 matcher\match_voice.py match "target.wav" --reference "Reference-Profile.json" --output "matched.wav" --loudness youtube
+py -3 matcher\match_voice.py plan "target.wav" --reference "Reference-Profile.json" --output "Track-Plan.json"
+```
 
-For saving inside Resolve:
+- The reference argument accepts a speech WAV or a profile from `profile`.
+- Select `--mode voice`, `--mode eq`, or `--mode level`. `voice` is the default.
+- `--loudness reference` is the default. `youtube` targets −16 LUFS with a −2 dBTP ceiling. `keep` aims for the target's original measured loudness. `eq` always uses the original measured loudness as its target.
+- `--depth`, `--presence`, and `--control` range from 0 to 100. WAV output retains sample rate, channels, and frame count. It uses 24-bit PCM and a new filename.
+- Use **Track profiles → Load WAV match plan** to import `Track-Plan.json`, or select **Match WAV → Use with knobs**. Choose an isolated target speech recording. The plan uses one EQ curve for the track. Check Resolve's final meter separately.
 
-1. Open **Fairlight → Presets Library**.
-2. Select your voice track.
-3. Select **Global Track Presets**.
-4. Click **Save New**.
-5. Name and save the preset.
-
-Global presets include other track settings.
-Alternatively, save EQ/Dynamics presets separately.
-Menu wording can vary across builds.
-
-## Limits
-
-- Setup includes frequencies and switches.
-- Mapping covers seven numeric controls.
-- Mapping doesn't identify audio content.
-- Check the track window titles.
-- Readback requires copying field text.
-- Unsupported copying blocks automatic application.
-- Layout or DPI changes require remapping.
-- Track changes can require remapping.
-- Verify mappings after each launch.
-- Zero knobs retain high-pass filtering.
-- This doesn't lower vocal pitch.
-- It doesn't repair clipped recordings.
-- It doesn't replace microphone technique.
-- Loudness targets aren't applied automatically.
-
-If control fails, use **Recipe**.
-Enter its numbers through Fairlight.
-This fallback requires manual entry.
-
-## Restore
-
-**Restore** reverses the last applied batch.
-It uses stored parameter values.
-It doesn't restore the whole track.
-With release mode, batches cover groups.
-Restoring doesn't reposition the knobs.
-Knobs continue showing proposed settings.
-
-Interrupted batches can leave changes.
-Inspect the values before restoring.
-The application retains recovery snapshots.
-
-## Files
-
-| File | Purpose |
-|---|---|
-| VoiceMacro.exe | Windows application |
-| START-HERE.html | Setup walkthrough |
-| presets/ | Three starting presets |
-| docs/ENGINEERING.md | Design and formulas |
-| docs/REVIEW.md | Attachment review |
-| docs/VALIDATION.md | Tests and listening protocol |
-| docs/TEST-RESULTS.txt | Executed logic tests |
-| docs/BUILD-RESULTS.txt | Windows-target compilation |
-| src/ | Application source |
-| tests/ | Logic and failure tests |
-| tools/Inspect-ResolveDocs.ps1 | Read installed SDK documentation |
-
-Settings use `%LOCALAPPDATA%\VoiceMacro`.
-Presets remain portable JSON files.
-Deleting the application removes no audio.
-
-## Rebuild
-
-Use a .NET 8 SDK.
-The application targets .NET Framework 4.8.
+## Build and verify
 
 ```powershell
 dotnet build VoiceMacro.csproj -c Release
 dotnet run --project tests/Tests.csproj -c Release
+python -m unittest discover -s tests -p "test_matcher.py"
 ```
 
-Only rebuilding downloads reference assemblies.
-Running the application requires no downloads.
-
-License: MIT. See LICENSE.txt.
-Blackmagic hasn't endorsed this prototype.
+See [validation](docs/VALIDATION.md) for tested cases and the Windows checklist. Source is under the MIT license in [LICENSE.txt](LICENSE.txt).

@@ -21,7 +21,7 @@ namespace VoiceMacro {
         [DataMember(IsRequired=true)] public string id=Guid.NewGuid().ToString("N");
         [DataMember(IsRequired=true)] public List<Binding> fields=new List<Binding>();
         public void Validate() {
-            if(schema!=1 || fields==null || fields.Count>7 || String.IsNullOrEmpty(id)) throw new InvalidDataException("Layout format unsupported.");
+            if(schema!=1 || fields==null || fields.Count>Model.Fields.Length || String.IsNullOrEmpty(id)) throw new InvalidDataException("Layout format unsupported.");
             var keys=new HashSet<string>();
             foreach(var b in fields) {
                 Model.Find(b.key);
@@ -52,13 +52,51 @@ namespace VoiceMacro {
         [DataMember(IsRequired=true)] public double depth=35;
         [DataMember(IsRequired=true)] public double presence=25;
         [DataMember(IsRequired=true)] public double control=30;
+        [DataMember(EmitDefaultValue=false)] public MatchCurve match;
         public void Validate() {
             if(schema!=1) throw new InvalidDataException("Preset version unsupported.");
             if(String.IsNullOrWhiteSpace(name) || name.Length>100) throw new InvalidDataException("Preset name invalid.");
             foreach(double v in new[]{depth,presence,control})
                 if(Double.IsNaN(v)||Double.IsInfinity(v)||v<0||v>100) throw new InvalidDataException("Knobs require 0 through 100.");
+            if(match!=null)match.Validate();
         }
-        public Preset Clone() { return new Preset{name=name,depth=depth,presence=presence,control=control}; }
+        public Preset Clone() { return new Preset{name=name,depth=depth,presence=presence,control=control,match=match}; }
+    }
+    [DataContract]
+    public sealed class MatchCurve {
+        [DataMember(IsRequired=true)] public int schema=1;
+        [DataMember(IsRequired=true)] public string type="voice-macro-track-match";
+        [DataMember(IsRequired=true)] public double body, mud, presence, air, threshold, ratio;
+
+        public void Validate() {
+            var tone = new[]{body,mud,presence,air};
+            if(schema!=1 || type!="voice-macro-track-match" || tone.Any(x=>Double.IsNaN(x)||Math.Abs(x)>4.5) ||
+               Math.Abs(air)>2.5 || tone.Sum(x=>Math.Max(0,x))>5.001 || !(threshold>=-32 && threshold<=-10) ||
+               !(ratio>=1 && ratio<=3))
+                throw new InvalidDataException("This match is outside the supported range.");
+        }
+    }
+    [DataContract]
+    public sealed class TrackProfile {
+        [DataMember(IsRequired=true)] public int schema=1;
+        [DataMember(IsRequired=true)] public string type="voice-macro-track-profile";
+        [DataMember(IsRequired=true)] public Dictionary<string,double> values=new Dictionary<string,double>();
+
+        public void Validate() {
+            if(schema!=1 || type!="voice-macro-track-profile" || values==null)
+                throw new InvalidDataException("Choose a VoiceMacro track profile.");
+            foreach(var item in values)Model.Check(Model.Find(item.Key),item.Value);
+            foreach(var group in Model.Fields.GroupBy(field=>field.Group)) {
+                int count=group.Count(field=>values.ContainsKey(field.Key));
+                if(count!=0 && count!=group.Count())throw new InvalidDataException("The track profile is incomplete.");
+            }
+        }
+        public Dictionary<string,double> Select(string group) {
+            Validate();
+            var keys=Model.Keys(group);
+            if(!keys.All(values.ContainsKey))throw new InvalidOperationException("Capture this group before pasting.");
+            return keys.ToDictionary(key=>key,key=>values[key]);
+        }
     }
     public static class Model {
         public static readonly Field[] Fields = {
@@ -68,8 +106,13 @@ namespace VoiceMacro {
             new Field("air", "EQ", "Band 5: Gain", -20,20),
             new Field("threshold", "Dynamics", "Compressor: Threshold", -60,0),
             new Field("ratio", "Dynamics", "Compressor: Ratio", 1,20),
-            new Field("makeup", "Dynamics", "Dynamics: Make Up", -20,20)
+            new Field("makeup", "Dynamics", "Dynamics: Make Up", -20,20),
+            new Field("level", "Level", "Mixer: Track fader", -100,10)
         };
+        public static string[] Keys(string group) {
+            return Fields.Where(field=>group==null ? field.Group!="Level" : field.Group==group)
+                         .Select(field=>field.Key).ToArray();
+        }
         public static Field Find(string key) {
             Field f=Fields.FirstOrDefault(x=>x.Key==key);
             if(f==null) throw new InvalidDataException("Field unknown.");
@@ -78,6 +121,14 @@ namespace VoiceMacro {
         public static double Round(double x) { return Math.Round(x,1,MidpointRounding.AwayFromZero); }
         public static Dictionary<string,double> Map(Preset p) {
             p.Validate(); double d=p.depth/100,pres=p.presence/100,c=p.control/100;
+            if(p.match!=null) {
+                var m=p.match;
+                return new Dictionary<string,double> {
+                    {"body",Round(m.body*d)}, {"mud",Round(m.mud*d)},
+                    {"presence",Round(m.presence*pres)}, {"air",Round(m.air*pres)},
+                    {"threshold",m.threshold}, {"ratio",Round(1+(m.ratio-1)*c)}, {"makeup",0}
+                };
+            }
             return new Dictionary<string,double> {
                 {"body",Round(3.5*d)}, {"mud",Round(-2.5*d)},
                 {"presence",Round(2.5*pres)}, {"air",Round(pres*pres)},
@@ -104,6 +155,7 @@ namespace VoiceMacro {
             var v=Map(p); var b=new StringBuilder();
             b.AppendLine("VOICE MACRO / "+p.name);
             b.AppendLine("Depth "+Number(p.depth)+" / Presence "+Number(p.presence)+" / Control "+Number(p.control));
+            if(p.match!=null)b.AppendLine("WAV match: the dials scale the measured changes.");
             b.AppendLine(); b.AppendLine("SETUP ONCE / TRACK EQ");
             b.AppendLine("Enable EQ. Select Earth type.");
             b.AppendLine("Enable Bands 1 through 5.");
@@ -123,7 +175,8 @@ namespace VoiceMacro {
             b.AppendLine("Prepare speech peaks around -12dBFS.");
             b.AppendLine("Check output peaks after changes.");
             b.AppendLine(); b.AppendLine("KNOB VALUES / APPLY THESE");
-            foreach(var f in Fields) b.AppendLine(f.Group+" / "+f.Label+": "+Number(v[f.Key])+(f.Key=="ratio"?":1":" dB"));
+            foreach(var f in Fields.Where(field=>v.ContainsKey(field.Key)))
+                b.AppendLine(f.Group+" / "+f.Label+": "+Number(v[f.Key])+(f.Key=="ratio"?":1":" dB"));
             b.AppendLine(); b.AppendLine("Zeros retain the high-pass filter.");
             b.AppendLine("Settings require listening and adjustment.");
             b.AppendLine("Output loudness remains your decision.");

@@ -121,7 +121,7 @@ namespace VoiceMacro {
             }
             // Different groups must have different floating windows.
             var selected=keys.Select(k=>new {group=Model.Find(k).Group,w=windows[k]}).ToArray();
-            if(selected.Any(a=>selected.Any(b=>a.group!=b.group && a.w==b.w)))
+            if(selected.Any(a=>a.group=="EQ" && selected.Any(b=>b.group=="Dynamics" && a.w==b.w)))
                 throw new InvalidOperationException("Use EQ and Dynamics windows.");
         }
         private Binding Bind(string key) {return Layout.fields.Single(x=>x.key==key);}

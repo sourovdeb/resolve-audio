@@ -135,6 +135,31 @@ static class Tests {
                     new Binding{key="ratio",title="Dynamics - Voice",width=800,height=400,x=20,y=30,dpi=96}}};
                 l.Validate();
             });
+            Check("Match plan scales tone without raising makeup",delegate{
+                var m=new MatchCurve{body=-4,mud=1,presence=2,air=1,threshold=-23,ratio=2.4};
+                var p=new Preset{depth=50,presence=75,control=50,match=m};
+                var values=Model.Map(p);
+                Assert(values["body"]==-2&&values["mud"]==0.5&&values["presence"]==1.5&&values["air"]==0.8);
+                Assert(values["threshold"]==-23&&values["ratio"]==1.7&&values["makeup"]==0);
+                m.body=4;Throws(delegate{Model.Map(p);});
+            });
+            Check("Saved match and legacy preset load",delegate{
+                string p=Path.Combine(Path.GetTempPath(),Guid.NewGuid()+".json");
+                try{
+                    JsonFile.Write(p,new Preset());var legacy=JsonFile.Read<Preset>(p);legacy.Validate();Assert(legacy.match==null);
+                    var plan=new MatchCurve{body=-0.4,mud=0.8,presence=1.2,air=0.25,threshold=-22,ratio=1.8};
+                    JsonFile.Write(p,new Preset{match=plan});var restored=JsonFile.Read<Preset>(p);restored.Validate();
+                    Assert(restored.match.ratio==1.8&&restored.match.body==-0.4);
+                }finally{File.Delete(p);}
+            });
+            Check("Track copy groups keep fader independent",delegate{
+                var values=Model.Map(new Preset());values["level"]=-6;
+                var profile=new TrackProfile{values=values};
+                Assert(profile.Select("Level").Single().Value==-6);
+                Assert(profile.Select(null).Count==7&&!profile.Select(null).ContainsKey("level"));
+                Assert(profile.Select("EQ").Count==4&&profile.Select("Dynamics").Count==3);
+                values.Remove("mud");Throws(delegate{profile.Validate();});
+            });
             Console.WriteLine(count+" TEST GROUPS PASSED");Console.WriteLine("Windows and Resolve integration: NOT TESTED HERE");return 0;
         }catch(Exception e){Console.Error.WriteLine(e);return 1;}
     }

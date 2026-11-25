@@ -59,6 +59,7 @@ namespace VoiceMacro {
         public static string LayoutFile {get{return Path.Combine(Root,"layout.json");}}
         public static string SessionFile {get{return Path.Combine(Root,"session.json");}}
         public static string RestoreFile {get{return Path.Combine(Root,"before-apply.json");}}
+        public static string ProfileFile {get{return Path.Combine(Root,"track-profile.json");}}
         public static void Log(string text) {
             Directory.CreateDirectory(Root);string p=Path.Combine(Root,"events.log");
             if(File.Exists(p)&&new FileInfo(p).Length>1048576) File.Move(p,Path.Combine(Root,"events-"+DateTime.UtcNow.Ticks+".log"));
@@ -69,17 +70,21 @@ namespace VoiceMacro {
         private Dial depth,presence,control;
         private Label summary,status;
         private CheckBox auto;
-        private bool loading,busy,verified;
+        private bool loading,busy;
+        private HashSet<string> verified=new HashSet<string>();
         private Layout layout=new Layout();
         private Preset preset=new Preset();
+        private TrackProfile trackProfile=new TrackProfile();
         private string startupNote="Setup connects Fairlight's fields.";
         public MainForm() {
-            Text="Voice Macro 0.3 / Controller prototype";ClientSize=new Size(660,480);
+            Text="VoiceMacro 0.4 / Fairlight";ClientSize=new Size(660,525);
             FormBorderStyle=FormBorderStyle.FixedSingle;MaximizeBox=false;StartPosition=FormStartPosition.CenterScreen;
             AutoScaleMode=AutoScaleMode.Dpi;BackColor=Color.FromArgb(242,240,233);ForeColor=Color.FromArgb(28,38,35);
             Font=new Font("Segoe UI",9);
             try{if(File.Exists(Paths.LayoutFile)){layout=JsonFile.Read<Layout>(Paths.LayoutFile);layout.Validate();}}catch(Exception e){startupNote="Layout needs remapping.";Paths.Log(e.Message);}
             try{if(File.Exists(Paths.SessionFile)){preset=JsonFile.Read<Preset>(Paths.SessionFile);preset.Validate();}}catch{preset=new Preset();}
+            try{if(File.Exists(Paths.ProfileFile)){var profile=JsonFile.Read<TrackProfile>(Paths.ProfileFile);profile.Validate();trackProfile=profile;}}
+            catch(Exception e){Paths.Log(e.Message);}
             var top=new Panel{Location=new Point(0,0),Size=new Size(660,68),BackColor=Color.FromArgb(29,45,40)};Controls.Add(top);
             top.Controls.Add(new Label{Text="VOICE MACRO",Location=new Point(24,13),Size=new Size(280,30),ForeColor=Color.White,Font=new Font("Segoe UI",17,FontStyle.Bold)});
             top.Controls.Add(new Label{Text="DEPTH / PRESENCE / CONTROL",Location=new Point(354,24),Size=new Size(290,24),ForeColor=Color.FromArgb(183,213,197)});
@@ -94,12 +99,18 @@ namespace VoiceMacro {
             ButtonAt("Load",394,347,75,delegate{LoadPreset();});
             ButtonAt("Recipe",479,347,75,delegate{ShowRecipe();});
             ButtonAt("Help",564,347,72,delegate{OpenHelp();});
-            auto=new CheckBox{Text="Apply on release",Location=new Point(24,394),AutoSize=true};Controls.Add(auto);
-            auto.CheckedChanged+=delegate{if(auto.Checked&&!verified){auto.Checked=false;status.Text="Open Setup. Verify mappings first.";}};
-            var tip=new Label{Text="Drag up/down. Arrows adjust.",Location=new Point(354,396),Size=new Size(280,22)};Controls.Add(tip);
-            status=new Label{Text=startupNote,Location=new Point(24,432),Size=new Size(612,37),ForeColor=Color.FromArgb(41,85,68)};Controls.Add(status);
+            var profileButton=ButtonAt("Track profiles  ▾",24,392,193,delegate{});
+            var profileMenu=BuildProfileMenu();
+            profileButton.Click+=delegate{if(!busy)profileMenu.Show(profileButton,new Point(0,profileButton.Height));};
+            ButtonAt("Match WAV…",234,392,192,OpenMatcher);
+            ButtonAt("Resolve tools…",443,392,193,ShowResolveTools);
+            auto=new CheckBox{Text="Apply on release",Location=new Point(24,440),AutoSize=true};Controls.Add(auto);
+            auto.CheckedChanged+=delegate{if(auto.Checked&&!Model.Keys(null).All(verified.Contains)){auto.Checked=false;status.Text="Verify EQ and Dynamics first.";}};
+            var tip=new Label{Text="Drag up/down. Arrows adjust.",Location=new Point(354,442),Size=new Size(280,22)};Controls.Add(tip);
+            status=new Label{Text=startupNote,Location=new Point(24,476),Size=new Size(612,39),ForeColor=Color.FromArgb(41,85,68)};Controls.Add(status);
             RefreshSummary();
             FormClosing+=delegate{if(busy)return;try{JsonFile.Write(Paths.SessionFile,Current());}catch{}};
+            Disposed+=delegate{profileMenu.Dispose();};
         }
         private Dial MakeDial(string name,string desc,int x,double val) {
             var d=new Dial{Caption=name,Description=desc,Location=new Point(x,119),Value=val,AccessibleName=name};Controls.Add(d);
@@ -111,10 +122,16 @@ namespace VoiceMacro {
             var b=new Button{Text=label,Location=new Point(x,y),Size=new Size(width,34),FlatStyle=FlatStyle.Flat};
             b.Click+=delegate{if(!busy)handler();};Controls.Add(b);return b;
         }
-        private Preset Current(){return new Preset{name=preset.name,depth=Math.Round(depth.Value),presence=Math.Round(presence.Value),control=Math.Round(control.Value)};}
-        private void RefreshSummary(){if(depth==null||presence==null||control==null)return;var v=Model.Map(Current());summary.Text="Proposed: Body "+Model.Number(v["body"])+" dB    /    Presence "+Model.Number(v["presence"])+" dB    /    Ratio "+Model.Number(v["ratio"])+":1\nFairlight processes the track.";}
+        private Preset Current(){return new Preset{name=preset.name,depth=Math.Round(depth.Value),presence=Math.Round(presence.Value),control=Math.Round(control.Value),match=preset.match};}
+        private void RefreshSummary() {
+            if(depth==null||presence==null||control==null)return;
+            var values=Model.Map(Current());
+            summary.Text="Body "+Model.Number(values["body"])+" dB  /  Presence "+Model.Number(values["presence"])+
+                         " dB  /  Ratio "+Model.Number(values["ratio"])+":1\n"+
+                         (preset.match==null?"Mode: Voice shaping":"Mode: WAV reference match");
+        }
         private void Error(Exception e) {
-            auto.Checked=false;verified=false;Paths.Log(e.ToString());status.Text="Stopped. Check the message.";
+            Paths.Log(e.ToString());status.Text="Stopped. Check the message.";
             MessageBox.Show(this,e.Message+"\n\n"+(e.InnerException==null?"":e.InnerException.Message),"Voice Macro",MessageBoxButtons.OK,MessageBoxIcon.Information);
         }
         private void RunBridge(Action<IFieldAccess> action,string done) {
@@ -122,7 +139,7 @@ namespace VoiceMacro {
             try {
                 using(var clipboard=new ClipboardLease())action(new WindowsBridge(layout));
                 status.Text=done;Paths.Log(done);
-            } catch(Exception e){Show();Error(e);} finally{busy=false;Show();Activate();}
+            } catch(Exception e){verified.Clear();auto.Checked=false;Show();Error(e);} finally{busy=false;Show();Activate();}
         }
         private void Backup(Dictionary<string,double> values) {
             var snapshot=new Snapshot{time=DateTime.UtcNow.ToString("o"),values=values,layoutId=layout.id};
@@ -131,7 +148,7 @@ namespace VoiceMacro {
             JsonFile.Write(history,snapshot);
         }
         private void Apply(string group) {
-            if(!verified){status.Text="Open Setup. Verify mappings first.";return;}
+            if(!IsVerified(group))return;
             var values=Model.Map(Current());
             if(group!=null)values=values.Where(p=>Model.Find(p.Key).Group==group).ToDictionary(p=>p.Key,p=>p.Value);
             RunBridge(delegate(IFieldAccess a){Engine.Apply(a,values,Backup);},"Values verified. Listen in Resolve.");
@@ -146,12 +163,99 @@ namespace VoiceMacro {
             }catch(Exception e){Error(e);}
         }
         private void Setup() {
-            auto.Checked=false;verified=false;
-            using(var form=new SetupForm(layout,this)) {
-                form.ShowDialog(this);layout=form.CurrentLayout;
-                verified=form.Verified;
-                status.Text=verified?"Mapped and verified. Apply now.":"Setup incomplete. Recipe remains available.";
-                try{JsonFile.Write(Paths.LayoutFile,layout);}catch(Exception e){Error(e);}
+            auto.Checked=false;
+            // The capture timer must keep running while both windows are hidden.
+            var form=new SetupForm(layout,verified,this);
+            Enabled=false;
+            form.FormClosed+=delegate{
+                Enabled=true;layout=form.CurrentLayout;verified=form.Verified;
+                status.Text=verified.Count>0?"Mappings verified. Choose a track action.":"Verify a group before applying.";
+                try{JsonFile.Write(Paths.LayoutFile,layout);}catch(Exception e){verified.Clear();Error(e);}
+                Activate();
+            };
+            form.Show(this);
+        }
+        private bool IsVerified(string group) {
+            if(Model.Keys(group).All(verified.Contains))return true;
+            status.Text="Verify the required group in Setup.";
+            return false;
+        }
+        private ContextMenuStrip BuildProfileMenu() {
+            var menu=new ContextMenuStrip();
+            AddProfileGroup(menu,"Voice (EQ + Dynamics)",null);
+            AddProfileGroup(menu,"EQ gains","EQ");
+            AddProfileGroup(menu,"Dynamics","Dynamics");
+            AddProfileGroup(menu,"Mixer fader","Level");
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Save track profile…",null,delegate{SaveTrackProfile();});
+            menu.Items.Add("Load track profile…",null,delegate{LoadTrackProfile();});
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add("Apply knobs to EQ only",null,delegate{Apply("EQ");});
+            menu.Items.Add("Apply knobs to Dynamics only",null,delegate{Apply("Dynamics");});
+            menu.Items.Add("Load WAV match plan…",null,delegate{LoadPlan();});
+            menu.Items.Add("Clear WAV match",null,delegate{preset.match=null;RefreshSummary();status.Text="Voice shaping restored. Apply to hear.";});
+            return menu;
+        }
+        private void AddProfileGroup(ContextMenuStrip menu,string name,string group) {
+            var item=new ToolStripMenuItem(name);
+            item.DropDownItems.Add("Copy",null,delegate{CopyGroup(group);});
+            item.DropDownItems.Add("Paste",null,delegate{PasteGroup(group);});
+            menu.Items.Add(item);
+        }
+        private void CopyGroup(string group) {
+            if(!IsVerified(group))return;
+            RunBridge(delegate(IFieldAccess bridge){
+                var values=Engine.ReadAll(bridge,Model.Keys(group));
+                var profile=new TrackProfile{values=new Dictionary<string,double>(trackProfile.values)};
+                foreach(var value in values)profile.values[value.Key]=value.Value;
+                SetTrackProfile(profile);
+            },"Settings copied. Verify the destination before pasting.");
+        }
+        private void PasteGroup(string group) {
+            if(!IsVerified(group))return;
+            try{
+                var values=trackProfile.Select(group);
+                RunBridge(delegate(IFieldAccess bridge){Engine.Apply(bridge,values,Backup);},"Profile pasted and verified.");
+            }catch(Exception e){Error(e);}
+        }
+        private void SetTrackProfile(TrackProfile profile) {
+            profile.Validate();
+            JsonFile.Write(Paths.ProfileFile,profile);
+            trackProfile=profile;
+        }
+        private void SaveTrackProfile() {
+            using(var dialog=new SaveFileDialog{Filter="VoiceMacro track profile|*.json",FileName="Track-Profile.json"}) {
+                if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+                try{
+                    if(trackProfile.values.Count==0)throw new InvalidOperationException("Copy a track group before saving.");
+                    JsonFile.Write(dialog.FileName,trackProfile);status.Text="Track profile saved.";
+                }catch(Exception e){Error(e);}
+            }
+        }
+        private void LoadTrackProfile() {
+            using(var dialog=new OpenFileDialog{Filter="VoiceMacro track profile|*.json"}) {
+                if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+                try{SetTrackProfile(JsonFile.Read<TrackProfile>(dialog.FileName));status.Text="Profile loaded. Choose a group to paste.";}
+                catch(Exception e){Error(e);}
+            }
+        }
+        private void SetMatch(MatchCurve curve) {
+            curve.Validate();
+            if(preset.match==null) {
+                loading=true;depth.Value=75;presence.Value=75;control.Value=45;loading=false;
+            }
+            preset.match=curve;
+            RefreshSummary();status.Text="Match loaded. Turn knobs, then Apply.";
+        }
+        private void LoadPlan() {
+            using(var dialog=new OpenFileDialog{Filter="VoiceMacro track match|*.json"}) {
+                if(dialog.ShowDialog(this)!=DialogResult.OK)return;
+                try{SetMatch(JsonFile.Read<MatchCurve>(dialog.FileName));}catch(Exception e){Error(e);}
+            }
+        }
+        private void OpenMatcher() {
+            using(var dialog=new MatcherForm(Current())) {
+                if(dialog.ShowDialog(this)==DialogResult.OK)SetMatch(dialog.Curve);
             }
         }
         private void Save() {
@@ -176,54 +280,66 @@ namespace VoiceMacro {
                 var b=new Button{Text="Copy recipe",Dock=DockStyle.Bottom,Height=38};b.Click+=delegate{Clipboard.SetText(t.Text);};f.Controls.Add(b);f.ShowDialog(this);
             }
         }
+        private void ShowResolveTools() {
+            using(var f=new Form{Text="Resolve tools",ClientSize=new Size(600,488),StartPosition=FormStartPosition.CenterParent}) {
+                f.Controls.Add(new TextBox{Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Dock=DockStyle.Fill,
+                    Font=new Font("Segoe UI",11),Text=ResolveNotes.Text});
+                f.ShowDialog(this);
+            }
+        }
         private void OpenHelp() {try{Process.Start(new ProcessStartInfo(Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"START-HERE.html")){UseShellExecute=true});}catch(Exception e){Error(e);}}
     }
     public sealed class SetupForm:Form {
-        public Layout CurrentLayout;public bool Verified;
+        public Layout CurrentLayout;
+        public HashSet<string> Verified;
         private MainForm parent;
         private ListBox list;
         private Label note;
         private System.Windows.Forms.Timer timer;
         private int countdown;
         private string pending;
-        public SetupForm(Layout layout,MainForm owner) {
-            CurrentLayout=layout;parent=owner;Text="Connect Fairlight fields";ClientSize=new Size(660,560);StartPosition=FormStartPosition.CenterParent;
+        public SetupForm(Layout layout,HashSet<string> verified,MainForm owner) {
+            CurrentLayout=layout;Verified=new HashSet<string>(verified);parent=owner;Text="Connect Fairlight fields";ClientSize=new Size(660,560);StartPosition=FormStartPosition.CenterParent;
             Font=new Font("Segoe UI",10);AutoScaleMode=AutoScaleMode.Dpi;FormBorderStyle=FormBorderStyle.FixedDialog;MaximizeBox=false;
-            Controls.Add(new Label{Text="1. Open track EQ and Dynamics.\n2. Complete Recipe setup first.\n3. Select a field below.\n4. Capture; hover its number.\n5. Keep hovering for four seconds.",Location=new Point(20,16),Size=new Size(615,115)});
+            Controls.Add(new Label{Text="1. Complete the Recipe in Fairlight.\n2. Open the control window.\n3. Select and capture a field.\n4. Hover its number for four seconds.\n5. Verify the group.",Location=new Point(20,16),Size=new Size(615,115)});
             list=new ListBox{Location=new Point(20,139),Size=new Size(615,190),Font=new Font("Consolas",10)};Controls.Add(list);Fill();
             AddButton("Capture field",20,342,140,CaptureField);
-            AddButton("Verify mappings",174,342,150,Verify);
+            AddButton("Verify group",174,342,150,Verify);
             AddButton("Clear mappings",338,342,145,Clear);
             AddButton("Done",497,342,137,delegate{Close();});
-            note=new Label{Text="Capture targets numeric readouts.\nVerification copies values without replacing.\nEscape stops verification or changes.\nKeep track windows open during use.",Location=new Point(20,397),Size=new Size(615,145)};Controls.Add(note);
+            note=new Label{Text="Map the mixer fader only for level copying.\nCheck the names and values during verification.\nKeep the mapped windows open during use.",Location=new Point(20,397),Size=new Size(615,145)};Controls.Add(note);
             timer=new System.Windows.Forms.Timer{Interval=1000};timer.Tick+=Tick;
             FormClosed+=delegate{timer.Stop();timer.Dispose();parent.Show();};
         }
         private void AddButton(string label,int x,int y,int w,Action a){var b=new Button{Text=label,Location=new Point(x,y),Size=new Size(w,37)};b.Click+=delegate{try{a();}catch(Exception e){Fail(e);}};Controls.Add(b);}
-        private void Fill(){int index=list.SelectedIndex;list.Items.Clear();foreach(var f in Model.Fields){var b=CurrentLayout.fields.FirstOrDefault(x=>x.key==f.Key);list.Items.Add((b==null?"[ ] ":"[+] ")+f.Group+" / "+f.Label+(b==null?"":" / "+b.title));}list.SelectedIndex=Math.Max(0,Math.Min(6,index));}
-        private void CaptureField(){pending=Model.Fields[list.SelectedIndex].Key;Verified=false;countdown=4;Hide();parent.Hide();timer.Start();}
+        private void Fill(){int index=list.SelectedIndex;list.Items.Clear();foreach(var f in Model.Fields){var b=CurrentLayout.fields.FirstOrDefault(x=>x.key==f.Key);list.Items.Add((b==null?"[ ] ":Verified.Contains(f.Key)?"[✓] ":"[+] ")+f.Group+" / "+f.Label+(b==null?"":" / "+b.title));}list.SelectedIndex=Math.Max(0,Math.Min(Model.Fields.Length-1,index));}
+        private void CaptureField(){pending=Model.Fields[list.SelectedIndex].Key;countdown=4;Hide();parent.Hide();timer.Start();}
         private void Tick(object sender,EventArgs e) {
             if(--countdown>0)return;timer.Stop();
             try {
                 Native.AbortCheck();var b=WindowsBridge.Capture(pending);
                 var proposed=new Layout{fields=CurrentLayout.fields.Where(x=>x.key!=pending).ToList()};
                 proposed.fields.Add(b);proposed.Validate();CurrentLayout=proposed;
-                Fill();if(list.SelectedIndex<6)list.SelectedIndex++;
+                Verified.ExceptWith(Model.Keys(Model.Find(pending).Group));
+                Fill();if(list.SelectedIndex<Model.Fields.Length-1)list.SelectedIndex++;
                 note.Text="Captured: "+Model.Find(pending).Label+"\nWindow: "+b.title+"\nSelect Capture for the next.";
             }catch(Exception ex){Fail(ex);}finally{parent.Show();Show();Activate();}
         }
         private void Verify() {
+            var group=Model.Fields[list.SelectedIndex].Group;
+            var keys=Model.Keys(group);
+            Verified.ExceptWith(keys);
             Hide();parent.Hide();
             try {
                 using(var c=new ClipboardLease()) {
-                    var result=Engine.ReadAll(new WindowsBridge(CurrentLayout),Model.Fields.Select(x=>x.Key).ToArray());
-                    note.Text="Readback succeeded. Check field identities.\n"+String.Join(" / ",result.Select(x=>x.Key+" "+Model.Number(x.Value)).ToArray())+"\nClick Done, then Apply.";
+                    var result=Engine.ReadAll(new WindowsBridge(CurrentLayout),keys);
+                    note.Text=group+" readback. Check each value.\n"+String.Join(" / ",result.Select(x=>x.Key+" "+Model.Number(x.Value)).ToArray());
                 }
-                Verified=true;
+                Verified.UnionWith(keys);Fill();
             }catch(Exception e){Fail(e);}finally{parent.Show();Show();Activate();}
         }
-        private void Clear(){CurrentLayout=new Layout();Verified=false;Fill();note.Text="Mappings cleared. Presets remain saved.";}
-        private void Fail(Exception e){Verified=false;Paths.Log(e.ToString());Show();MessageBox.Show(this,e.Message,"Voice Macro setup");}
+        private void Clear(){CurrentLayout=new Layout();Verified.Clear();Fill();note.Text="Mappings cleared.";}
+        private void Fail(Exception e){Fill();Paths.Log(e.ToString());parent.Show();Show();MessageBox.Show(this,e.Message,"Voice Macro setup");}
     }
     public static class Program {
         [STAThread] public static void Main() {

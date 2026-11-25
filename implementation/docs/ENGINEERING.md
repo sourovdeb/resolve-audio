@@ -5,10 +5,7 @@ Date: 25 November 2026.
 
 ## Decision
 
-Your requirement preserves Fairlight's processors.
-The prototype therefore controls their interface.
-It contains no audio-processing engine.
-It contains no pitch shifter.
+The track controller writes parameters through Fairlight's interface. The WAV matcher uses a separate signal-processing path. It can render a WAV or calculate parameters for Fairlight.
 
 No EQ/Dynamics setters were established.
 That is this investigation's finding.
@@ -72,7 +69,7 @@ No timeline preset is applied automatically.
 No Resolve API method is invented.
 No audio leaves the machine.
 
-## Mathematics
+## Voice shaping
 
 Let D, P, C span 0–1.
 Displayed knobs span 0–100.
@@ -134,9 +131,7 @@ Reduce Control if consonants lose impact.
 Check output peaks after every change.
 Leave headroom at the output.
 
-The prototype promises no peak ceiling.
-It includes no true-peak meter.
-Delivery loudness needs Resolve's measurement tools.
+The track controller needs Resolve's meter for peak and delivery loudness checks. The WAV matcher measures the rendered file before publishing it.
 
 Optional cleanup remains outside the macros.
 Use de-essing when sibilance requires it.
@@ -147,7 +142,8 @@ Don't enable every effect by default.
 
 | Layer | Contains | Stored by |
 |---|---|---|
-| Macro JSON | Name; three knob positions | Voice Macro |
+| Macro JSON | Name, dial positions, optional reference curve | VoiceMacro |
+| Track profile JSON | Copied gains, dynamics, or fader | VoiceMacro |
 | Layout JSON | Window titles; field coordinates | Voice Macro |
 | Recovery JSON | Before-change values; mapping identity | Voice Macro |
 | Track preset | Track processor/settings state | Resolve |
@@ -155,6 +151,14 @@ Don't enable every effect by default.
 Macro presets don't contain the baseline.
 Fairlight presets can preserve that baseline.
 Keep a track template after setup.
+
+## Reference matching
+
+The matcher measures loudness and true peaks with FFmpeg's BS.1770 meter. It computes power spectra from gated windows sampled across the file. Stereo energy is averaged in power to retain out-of-phase content. The analysis uses 15 bands and ignores frequencies outside the shared bandwidth. A bounded fit estimates gains at the four track EQ controls.
+
+Depth scales the two lower filters. Presence scales the two upper filters. Control scales compression when the target exceeds the reference's range of active-frame levels. The measured track plan uses zero makeup gain. In file mode, a later gain stage approaches the configured loudness target with no more than +9 dB of gain. The measured true peak must be at or below −2 dBTP before the new file is published.
+
+This uses one broad-band EQ curve per WAV. Different speakers, passages, or background sounds can yield different curves. Compare results at matched loudness.
 
 ## Evidence
 

@@ -1,20 +1,15 @@
-# Voice Macro for DaVinci Resolve
+# VoiceMacro for DaVinci Resolve
 
-This repository contains the Windows prototype and the supplied materials.
+Three voice knobs, track profile copying, and WAV matching for Resolve Studio 21 on Windows.
 
-## Contents
+1. Download and extract the project ZIP.
+2. Open `implementation/START-HERE.html`.
+3. Run `implementation/install/Install-VoiceMacro.cmd`.
+4. Restart Resolve. Choose **Workspace → Workflow Integrations → VoiceMacro**.
 
-- `implementation/` — the new three-knob controller.
-- `implementation/START-HERE.html` — setup guide.
-- `implementation/VoiceMacro.exe` — compiled Windows build.
-- `implementation/src/` — source code.
-- `implementation/docs/` — engineering notes and validation.
-- `supplied/` — original files provided for review.
+- [Install and use VoiceMacro](implementation/README.md)
+- [Standalone Python matcher](implementation/matcher/match_voice.py)
+- [Validation and Windows test steps](implementation/docs/VALIDATION.md)
+- [Original materials](supplied/)
 
-Target: DaVinci Resolve Studio 21 on Windows.
-
-The controller operates Fairlight through mapped mouse and keyboard input.
-It does not replace Fairlight's audio processors.
-
-Windows and Resolve host testing remains outstanding.
-The repository records that limitation.
+The desktop application was compiled for Windows. Resolve menu loading and Fairlight field control await host testing.

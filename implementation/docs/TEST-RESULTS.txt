@@ -24,5 +24,15 @@ PASS Reject duplicate mapped coordinates
 PASS Reject mixed tracks within EQ
 PASS Reject off-window calibration
 PASS Accept separate EQ and dynamics
-26 TEST GROUPS PASSED
+PASS Match plan scales tone without raising makeup
+PASS Saved match and legacy preset load
+PASS Track copy groups keep fader independent
+29 C# TEST GROUPS PASSED
+PASS Match retains timing and improves the filtered tone and level
+PASS Identical tone needs no matching boost
+PASS True-peak headroom takes precedence
+PASS Anti-phase stereo and 8 kHz bandwidth
+PASS Silent reference is refused
+PASS Existing output is preserved
+6 PYTHON/FFMPEG TESTS PASSED
 Windows and Resolve integration: NOT TESTED HERE

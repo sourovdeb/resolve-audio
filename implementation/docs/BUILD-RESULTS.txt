@@ -1,9 +1,11 @@
-  Determining projects to restore...
-  All projects are up-to-date for restore.
-  VoiceMacro -> /workspace/scratch/ccfc6349e196/build-output/VoiceMacro.exe
+VoiceMacro 0.4.0 Windows GUI build
+Target: .NET Framework 4.8
+Compiler: .NET SDK 8.0.428
+Command: dotnet build VoiceMacro.csproj -c Release
+Output: bin/Release/net48/VoiceMacro.exe
 
 Build succeeded.
     0 Warning(s)
     0 Error(s)
 
-Time Elapsed 00:00:01.26
+Windows and Resolve host testing pending.

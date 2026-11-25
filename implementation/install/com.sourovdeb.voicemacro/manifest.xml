@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<BlackmagicDesign>
+  <Plugin>
+    <Id>com.sourovdeb.voicemacro</Id>
+    <Name>VoiceMacro</Name>
+    <Version>0.4.0</Version>
+    <Description>Open the VoiceMacro Fairlight controller.</Description>
+    <FilePath>main.js</FilePath>
+  </Plugin>
+</BlackmagicDesign>
