@@ -1,0 +1,83 @@
+{
+  "type": "voice-macro-reference",
+  "schema": 1,
+  "title": "Zoom H1n voice reference",
+  "source": {
+    "file": "211018-075300.WAV",
+    "recorder": "ZOOM Handy Recorder H1n",
+    "recordingDate": "2018-10-21",
+    "format": "PCM WAV",
+    "sampleRateHz": 48000,
+    "channels": 2,
+    "bitsPerSample": 16,
+    "durationSeconds": 132.316
+  },
+  "sampleRate": 48000,
+  "bandsHz": [
+    100,
+    140,
+    200,
+    280,
+    400,
+    560,
+    800,
+    1120,
+    1600,
+    2240,
+    3200,
+    4480,
+    6400,
+    9000,
+    10900
+  ],
+  "spectrumDb": [
+    -4.792,
+    -10.898,
+    -9.616,
+    -7.045,
+    -10.799,
+    -13.431,
+    -20.293,
+    -21.599,
+    -17.472,
+    -17.852,
+    -19.992,
+    -16.201,
+    -14.436,
+    -16.115,
+    -21.818
+  ],
+  "loudness": -17.92,
+  "truePeak": -1.86,
+  "loudnessRange": 8.8,
+  "speechRms70": -17.4,
+  "speechSpread": 11.96,
+  "instructions": {
+    "purpose": "Use this compact profile as the reference instead of loading the WAV. It stores the WAV's measured tonal and level characteristics. It does not store audio samples.",
+    "scope": "This is one recording profile, not a universal microphone preset. Voice, distance, room, and noise affect the match.",
+    "resolve": [
+      "Install VoiceMacro and its matcher tools. Open Match WAV.",
+      "Choose the target speech WAV. This JSON is the reference file.",
+      "Choose Match voice, Match EQ, or Match level.",
+      "Use with knobs loads a proposed Fairlight EQ and compressor curve.",
+      "Choose a new output WAV name. Import and compare at matched loudness.",
+      "For another target, select this JSON again. The original reference WAV is not needed."
+    ],
+    "python": "py -3 matcher\\match_voice.py match \"target.wav\" --reference \"presets\\Zoom-H1n-Voice-Reference.json\" --output \"matched.wav\" --loudness youtube",
+    "fields": {
+      "bandsHz": "Center frequencies, in Hz, for the measured spectral profile.",
+      "spectrumDb": "Relative band power, in dB. Pair each value with the same-index bandsHz value.",
+      "loudness": "Integrated BS.1770 loudness, in LUFS.",
+      "truePeak": "Measured true peak, in dBTP.",
+      "loudnessRange": "Measured loudness range, in LU.",
+      "speechRms70": "70th-percentile active-frame RMS, in dBFS. Used for compressor threshold matching.",
+      "speechSpread": "Difference between 90th- and 20th-percentile active-frame RMS, in dB. Used to estimate compression."
+    },
+    "limits": [
+      "Tone matching uses one broad EQ curve across the full target file.",
+      "Speech level matching does not align words, room reflections, or microphone position.",
+      "YouTube mode aims for -16 LUFS and -2 dBTP. Headroom may keep the output quieter.",
+      "Listen to the result and check the final Resolve mix."
+    ]
+  }
+}

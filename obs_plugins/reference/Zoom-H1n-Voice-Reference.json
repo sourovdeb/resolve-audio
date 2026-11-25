@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "sample_rate": 48000,
+  "channels": 2,
+  "duration_seconds": 132.316,
+  "source": "Zoom H1n field recorder, natural voice, untreated room",
+  "measured_targets": {
+    "loudness_integrated_lufs": -17.92,
+    "true_peak_dbtp": -1.86,
+    "lra_lu": 8.8,
+    "speech_rms70_dbfs": -17.4,
+    "speech_spread_p90_p20_db": 11.96
+  },
+  "spectrum_db": [
+    -4.792, -10.898, -9.616, -7.045, -10.799,
+    -13.431, -20.293, -21.599, -17.472, -17.852,
+    -19.992, -16.201, -14.436, -16.115, -21.818
+  ],
+  "band_centers_hz": [
+    100, 140, 200, 280, 400,
+    560, 800, 1120, 1600, 2240,
+    3200, 4480, 6400, 9000, 10900
+  ],
+  "processing_targets": {
+    "target_loudness_lufs": -17.92,
+    "ceiling_dbtp": -2.0,
+    "internal_limiter_dbtp": -2.3,
+    "tolerance_lu": 0.25,
+    "max_gain_db": 9.0,
+    "min_gain_db": -12.0
+  },
+  "interface": {
+    "sliders": [
+      {"name": "depth", "min": 0, "max": 100, "default": 75, "description": "Body/mud correction (140/320 Hz)"},
+      {"name": "presence", "min": 0, "max": 100, "default": 75, "description": "Presence/air correction (3.2k/10k Hz)"},
+      {"name": "control", "min": 0, "max": 100, "default": 45, "description": "Compression ratio scaling"}
+    ]
+  },
+  "dsp_chain": [
+    "input",
+    "optional_isolation (RNNoise)",
+    "hpf_70hz",
+    "eq_cascade (body, mud, presence, air)",
+    "compressor (rms, 12ms attack, 120ms release)",
+    "loudness_lander",
+    "true_peak_limiter (-2.0 dBTP)"
+  ],
+  "validation": {
+    "offline_loudness_error_lu": 0.25,
+    "live_loudness_error_lu": 0.5,
+    "true_peak_dbtp": -2.0,
+    "tone_mae_db": 2.0,
+    "match_latency_ms": 15,
+    "isolation_latency_ms": 60
+  }
+}

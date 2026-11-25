@@ -1,0 +1,473 @@
+{
+  "blueprint": {
+    "name": "OBS Voice Match (App 1 of 2)",
+    "version": "0.1-draft",
+    "date": "2026-11-25",
+    "status": "Blueprint only. No code written yet.",
+    "goal": "Convert any microphone input toward the tone, dynamics and loudness stored in Zoom-H1n-Voice-Reference.json, using measurement and arithmetic, with three sliders for fine-tuning.",
+    "companion_document": "voice-isolation-blueprint.md (App 2). Chain order in OBS: Isolation first, Voice Match second.",
+    "target_platform_v1": "Windows 10/11 x64 first. The plugin template also builds on macOS and Ubuntu 24.04, so Linux is a later phase, not a v1 promise."
+  },
+
+  "how_to_read": {
+    "verified": "Checked this session against a fetched page or an arithmetic check shown in this file.",
+    "recalled": "From my own knowledge of OBS. Not re-checked. Confirm in the discovery task (Phase 1) before relying on it.",
+    "estimate": "My judgement of likelihood. Not measured. Replace with real numbers after Phase 6."
+  },
+
+  "reference_profile": {
+    "source": "Zoom-H1n-Voice-Reference.json, schema 1. Recording 211018-075300.WAV, 48 kHz, 16-bit, stereo, 132.3 s.",
+    "targets": {
+      "band_centres_hz": [100, 140, 200, 280, 400, 560, 800, 1120, 1600, 2240, 3200, 4480, 6400, 9000, 10900],
+      "band_power_db": [-4.792, -10.898, -9.616, -7.045, -10.799, -13.431, -20.293, -21.599, -17.472, -17.852, -19.992, -16.201, -14.436, -16.115, -21.818],
+      "integrated_loudness_lufs": -17.92,
+      "true_peak_dbtp": -1.86,
+      "loudness_range_lu": 8.8,
+      "speech_rms_p70_dbfs": -17.4,
+      "speech_spread_db": 11.96
+    },
+    "verified_finding_normalisation": {
+      "claim": "The 15 band values are fractions of total in-band power. In linear power they sum to 1.0 (0 dB).",
+      "check": "Sum of 10^(dB/10) over the 15 values = 0.99997 (computed).",
+      "consequence": "Our analyser must normalise each measured band power by the sum over the same 15 bands before comparing. Then a pure level difference produces zero tone correction, and level is handled only by the loudness stage."
+    },
+    "verified_finding_low_heavy": "Bands 100 to 280 Hz hold about 72 percent of the in-band power (0.3317 + 0.0813 + 0.1092 + 0.1975 = 0.7198). The reference is a low-heavy voice with a secondary bump around 4.5 to 6.4 kHz.",
+    "known_unknowns": [
+      "Band edges and analysis window of the analyser that produced the numbers are not in the file. Assumed: edges at centre x 2^(-1/4) and centre x 2^(+1/4).",
+      "The last centre, 10900 Hz, is off the half-octave grid (9000 x 1.21, while every earlier step is about x 1.41). Its true edges are unknown, so it gets half weight in the fit.",
+      "Frame length and gate used for the active-frame statistics (speechRms70, speechSpread) are not stated.",
+      "Whether the stereo file was summed to mono before measuring is not stated."
+    ],
+    "how_to_close_the_unknowns": "The file's own instructions name an offline matcher (matcher/match_voice.py). That script is the analyser that produced these numbers. Sharing it removes all four unknowns and gives us a ground-truth oracle for testing. This is the single biggest accuracy lever in the project."
+  },
+
+  "architecture_decision": {
+    "finding": "A Lua or Python OBS script cannot process audio samples. The documented script exports are lifecycle and UI hooks (script_load, script_unload, script_save, script_defaults, script_update, script_properties, script_tick). None receives an audio buffer. Sample-level audio processing is done by a native plugin through the filter_audio callback in obs_source_info.",
+    "confidence": "about 90 percent (estimate). Verified: the export list and the existence of filter_audio. Not verified: the body of the Script Sources (Lua only) section, which the fetched page did not show. Read that section once in Phase 1.",
+    "consequence": "The script and the plugin cannot be the same machine. The plugin does the real DSP. The script is a calculator and chain builder that sets OBS's own built-in filters from a measurement.",
+    "quality_gap": "The built-in OBS EQ filter (kind basic_eq_filter) exposes three gains only: low, mid, high, each limited to plus or minus 20 dB. The reference needs 15 bands. So the script version can match the broad tilt, not the detailed curve."
+  },
+
+  "deliverables": {
+    "A_plugin": {
+      "role": "The real thing. Highest quality.",
+      "language": "C++17 core in a header-only library with no OBS dependency, plus a thin C entry point from the template.",
+      "template": "https://github.com/obsproject/obs-plugintemplate (GPL-2.0).",
+      "template_requirements_verified": {
+        "windows": "Visual Studio 17 2022 and CMake 3.30.5",
+        "macos": "Xcode 16.0 and CMake 3.30.5",
+        "ubuntu_24_04": "CMake 3.28.3, ninja-build, pkg-config, build-essential"
+      },
+      "template_docs_to_read": ["Quick Start Guide", "Getting Started", "Build System Requirements", "CMake Build System Options"],
+      "registration": {
+        "struct": "obs_source_info",
+        "id": "voice_match_audio_filter",
+        "type": "OBS_SOURCE_TYPE_FILTER",
+        "output_flags": "OBS_SOURCE_AUDIO",
+        "callbacks": ["get_name", "create", "destroy", "get_defaults", "get_properties", "update", "filter_audio"],
+        "audio_format_recalled": "filter_audio receives a pointer to obs_audio_data holding planar 32-bit float channels and a frame count. Process in place and return the same pointer."
+      },
+      "source_layout": {
+        "src/plugin-main.c": "template entry; registers the filter in obs_module_load",
+        "src/vm_filter.cpp": "OBS glue: settings, properties, filter_audio, parameter smoothing",
+        "src/vmcore/analyser.hpp": "STFT, band power, voice-activity gate, percentile histograms",
+        "src/vmcore/eq_fit.hpp": "interaction-matrix fit, biquad design, cascade",
+        "src/vmcore/dynamics.hpp": "compressor, ratio solver",
+        "src/vmcore/loudness.hpp": "K-weighting, gated loudness, slow gain control",
+        "src/vmcore/limiter.hpp": "4x oversampled true-peak limiter",
+        "src/vmcore/profile.hpp": "reference profile constants, compiled in and also loadable from JSON",
+        "tests/": "unit tests for vmcore that run without OBS",
+        "tools/": "Python report-card scripts used in validation"
+      },
+      "threading_rules": [
+        "filter_audio runs on the audio thread: no allocation, no locks, no file access, no logging.",
+        "Analysis FFTs run on a worker thread fed by a lock-free single-producer ring buffer.",
+        "New coefficients are built on the worker thread and handed over by an atomic pointer swap of a double buffer.",
+        "Every slider change is slewed over about 50 ms to avoid zipper noise.",
+        "Flush denormals to zero and guard against NaN at the end of each block."
+      ],
+      "libraries": "Own code for biquads and K-weighting. A small vendored FFT (PFFFT or KissFFT, both permissive; verify licences) for analysis. libebur128 (MIT) is an optional cross-check for the loudness meter, used in tests only."
+    },
+
+    "B_script": {
+      "role": "Fast first win and a teaching tool. Coarse match only.",
+      "language": "Python (OBS Python scripting). Lua has no FFT, so it is not suitable for the analysis.",
+      "how_it_works": [
+        "User picks an audio source and a 30 to 60 second WAV of their own voice recorded raw, with no filters.",
+        "Script analyses the WAV with the same maths as the plugin (numpy), then creates or updates a small filter chain on that source: equaliser, compressor, gain, limiter.",
+        "Three sliders re-run only the final arithmetic and push new settings; analysis is cached."
+      ],
+      "filters_driven": {
+        "equaliser": "basic_eq_filter with low, mid, high in dB (verified range plus or minus 20)",
+        "compressor": "compressor_filter (recalled setting names: ratio, threshold, attack_time, release_time, output_gain)",
+        "gain": "gain_filter (recalled setting: db)",
+        "limiter": "limiter_filter (recalled settings: threshold, release_time). Sample-peak, not true-peak, so set it about 1 dB lower than the plugin ceiling."
+      },
+      "three_band_reduction": "low, mid, high = mean of (tone% x clamped correction) over the 15 bands that fall in each region. The two crossover frequencies are unresolved: my recollection is 800 Hz and 5 kHz, but a secondary web page described a 100 Hz low shelf. Read the filter's source or measure it with a sweep before using either number.",
+      "python_requirements": [
+        "OBS must be pointed at a Python install under Tools, Scripts, Python Settings.",
+        "numpy (and soundfile, or fall back to the stdlib wave module for 16-bit PCM) must be installed into that same interpreter."
+      ],
+      "cannot_do": [
+        "Live analysis of the incoming audio",
+        "More than three EQ bands",
+        "True-peak limiting",
+        "Learning that adapts when the mic changes (re-run on a new WAV instead)"
+      ],
+      "dispatch_option": "The offline matcher named in the reference file can be called by the script as a subprocess to produce a matched WAV for comparison. It cannot process live audio."
+    }
+  },
+
+  "dsp_pipeline_plugin": {
+    "order": ["S0 high-pass", "S1 tone match", "S2 dynamics match", "S3 loudness match", "S4 true-peak limiter"],
+    "analysis_taps": "Tone analysis reads the input after S0. Dynamics analysis reads the signal after S1 and before S2. Everything is open loop in v1 (no feedback from the output), which avoids control-loop instability.",
+
+    "S0_high_pass": {
+      "design": "2nd-order Butterworth, 80 Hz, fixed.",
+      "why": "The reference has no content below its 100 Hz band. Boosting low bands without this would amplify desk rumble.",
+      "status": "Design assumption, not from the reference file."
+    },
+
+    "S1_tone_match": {
+      "analyser": {
+        "fft": "8192-point Hann window at 48 kHz (5.9 Hz bins, needed to resolve the 100 Hz band), hop 4096. At 44.1 kHz use the same size.",
+        "band_edges": "centre x 2^(-1/4) to centre x 2^(+1/4). Assumed; replace with the oracle's definition when known.",
+        "voice_gate": "Frames of 50 ms. Noise floor = 10th percentile of frame RMS over a 10 s window. A frame is active when RMS exceeds the floor by 12 dB, with 200 ms hang time. Assumed values; tune in validation.",
+        "noise_subtraction": "Subtract the average band power of inactive frames from the active-frame band power (floor at zero) before normalising.",
+        "accumulate": "Mean band power over active frames only. Normalise by the sum across the 15 bands (verified convention). Convert to dB."
+      },
+      "learn_policy": {
+        "idle": "Output tone is neutral until enough speech is heard.",
+        "learning": "Needs at least 20 s of active speech (about 25 s of talking). Estimate: 20 s gives band estimates stable to about 0.5 dB; confirm in tests.",
+        "locked": "Coefficients freeze. Fade in over 2 s.",
+        "relearn": "On the Re-learn button, on a source change, or on a sample-rate change."
+      },
+      "correction": {
+        "raw": "d_i = ref_dB_i - measured_dB_i for i = 1..15",
+        "why_no_mean_removal": "Both profiles are normalised to sum to 1, so a pure level offset already yields d = 0. Applying d_i to the measured profile and renormalising reproduces the reference profile exactly (verified algebraically).",
+        "smoothing": "Gaussian smoothing of d across bands, about 1 octave wide. Fine structure is mostly the speaker's own timbre, not the microphone.",
+        "clamp": "Each band limited to -15 dB (cut) and +9 dB (boost). Cuts are safer than boosts.",
+        "weights": "Band 15 (10900 Hz) weighted 0.5 in the fit.",
+        "slider": "Target gain per band = (tone_match / 100) x clamped d_i"
+      },
+      "filter_fit": {
+        "structure": "15 peaking biquads in series (RBJ cookbook), centres at the reference bands, starting Q of about 2.9 (half-octave bandwidth), recomputed for the live sample rate.",
+        "problem": "Adjacent peaking filters overlap, so setting each filter gain equal to its target overshoots.",
+        "solution": "Build matrix A, where A[i][j] is the dB response of filter j at centre i for 1 dB of gain. Solve g = argmin ||A g - target||^2 + lambda ||g||^2 with lambda about 0.05. Clamp g, then evaluate the real cascade response and repeat the solve twice on the residual.",
+        "accept": "Cascade response within 0.5 dB of target at the 15 centres, ripple between centres under 1 dB.",
+        "cost": "About 15 biquads per channel. Estimate: under 1 percent of one core."
+      }
+    },
+
+    "S2_dynamics_match": {
+      "stats": "Frame RMS in dBFS over active frames (same gate as S1). Percentiles P20, P50, P90 from a 0.5 dB histogram over a 30 s sliding window. Measured spread S_meas = P90 - P20. Reference spread S_ref = 11.96 dB.",
+      "goal": "S_goal = S_meas - (dynamics_match / 100) x max(0, S_meas - S_ref). If the voice is already tighter than the reference, do not expand.",
+      "compressor": {
+        "threshold": "T = P50 (dBFS, post-EQ, pre-compressor)",
+        "ratio_formula": "R = (P90 - P50) / (S_goal - (P50 - P20)), clamped to 1.0 to 8.0",
+        "model": "Output spread = (P50 - P20) + (P90 - P50) / R. This is a static approximation that ignores attack and release.",
+        "timing": "Attack 8 ms, release 120 ms, soft knee 6 dB, log-domain detector, channels linked.",
+        "unreachable_case": "If S_goal <= P50 - P20 the formula has no solution. Clamp R to 8 and show a note in the log."
+      },
+      "worked_example": {
+        "inputs": {"P20": -40, "P50": -32, "P90": -20, "S_meas": 20},
+        "dynamics_100": {"S_goal": 11.96, "R": 3.03, "check": "8 + 12 / 3.03 = 11.96"},
+        "dynamics_50": {"S_goal": 15.98, "R": 1.50, "check": "8 + 12 / 1.50 = 16.0"}
+      },
+      "v2_idea": "Add a slow closed-loop trim on R using the measured output spread. Not in v1."
+    },
+
+    "S3_loudness_match": {
+      "meter": "ITU-R BS.1770 K-weighting (two biquads) with 400 ms blocks at 75 percent overlap.",
+      "speech_gating": "Average block loudness only over blocks that pass the S1 voice gate, over the last 10 to 15 s. This mimics the gated integrated measurement used for the reference.",
+      "target": "LUFS_target = -17.92 + level_offset",
+      "gain_control": "Gain = target minus measured. Slew limited to +1 dB/s up and -3 dB/s down. Total gain clamped to plus or minus 12 dB. Hold the gain when no speech is detected so silence is never boosted.",
+      "note_on_youtube": "The reference file's own notes describe a YouTube mode of -16 LUFS and -2 dBTP. That equals level_offset = +1.92."
+    },
+
+    "S4_limiter": {
+      "ceiling": "-2.0 dBTP, fixed, not exposed. The reference measured -1.86 dBTP; 2.0 leaves margin.",
+      "method": "4x oversampled peak detection, 2 ms lookahead, 80 ms release.",
+      "added_latency": "About 2 ms. Estimate: total chain latency under 5 ms."
+    }
+  },
+
+  "ui": {
+    "principle": "Three sliders. The plugin shows them in OBS's standard filter properties panel. The filter's eye icon in OBS is the on/off switch, so no extra toggle is needed.",
+    "sliders": [
+      {
+        "id": "tone_match",
+        "label": "Tone match",
+        "api": "obs_properties_add_float_slider",
+        "range": [0, 100],
+        "step": 1,
+        "default": 80,
+        "suffix": "%",
+        "meaning": "0 = no EQ. 100 = full correction toward the reference curve.",
+        "default_reason": "A full match on a noisy room or a very different voice can over-boost. 80 is a starting guess to be tuned in Phase 6."
+      },
+      {
+        "id": "dynamics_match",
+        "label": "Dynamics match",
+        "api": "obs_properties_add_float_slider",
+        "range": [0, 100],
+        "step": 1,
+        "default": 70,
+        "suffix": "%",
+        "meaning": "0 = no compression. 100 = squeeze the loudness spread to the reference's 11.96 dB."
+      },
+      {
+        "id": "level_offset",
+        "label": "Level",
+        "api": "obs_properties_add_float_slider",
+        "range": [-6.0, 6.0],
+        "step": 0.1,
+        "default": 0.0,
+        "suffix": " dB",
+        "meaning": "Offset from the reference loudness of -17.92 LUFS. +1.92 gives -16 LUFS."
+      }
+    ],
+    "deviation_to_confirm": "One non-slider control is proposed: a Re-learn button (obs_properties_add_button). Without it the only way to re-learn is to re-add the filter. The plugin works without it. Veto if you want strictly three controls.",
+    "script_version_ui": "Same three sliders via script_properties, plus a source dropdown, a WAV path field and an Apply button."
+  },
+
+  "build_plan": [
+    {
+      "phase": 0,
+      "name": "Decide inputs",
+      "tasks": ["Share matcher/match_voice.py if you have it", "Say which OS runs OBS for this", "Say which OBS version and which mic you use most"],
+      "exit": "Open questions below answered or consciously deferred."
+    },
+    {
+      "phase": 1,
+      "name": "Discovery inside OBS",
+      "tasks": [
+        "Read the Script Sources (Lua only) section of the scripting docs.",
+        "Add a 3-band EQ, compressor, gain, limiter and noise suppression filter by hand once, then dump each filter's real kind id and settings keys with obs_enum_filter_types and obs_data_get_json_pretty from a tiny script.",
+        "Measure the 3-band EQ crossover frequencies with a sine sweep."
+      ],
+      "exit": "A one-page table of verified filter ids, setting keys and crossovers replaces every 'recalled' item in this file."
+    },
+    {
+      "phase": 2,
+      "name": "Offline analyser in Python",
+      "tasks": [
+        "Implement S1 analysis, S2 statistics and the loudness meter with numpy, scipy and pyloudnorm.",
+        "Self-test: generate pink noise shaped to the reference band profile and confirm the analyser returns it within 0.3 dB.",
+        "Oracle test: compare against match_voice.py on real speech if the script is available."
+      ],
+      "exit": "Self-test within 0.3 dB. Oracle band error under 1.5 dB RMS, or a written list of the differences."
+    },
+    {
+      "phase": 3,
+      "name": "Script version (B)",
+      "tasks": ["Build the Python script per deliverable B", "Test on two microphones"],
+      "exit": "Chain builds and updates without errors; three sliders move the real filter settings; report card produced."
+    },
+    {
+      "phase": 4,
+      "name": "vmcore in C++ with tests",
+      "tasks": ["Port the Phase 2 maths", "Unit tests compare vmcore output to the Python analyser on the same WAVs"],
+      "exit": "vmcore and Python agree within 0.2 dB on every metric."
+    },
+    {
+      "phase": 5,
+      "name": "OBS plugin (A)",
+      "tasks": [
+        "Build the untouched template first and confirm it loads in the OBS log.",
+        "Rename it using buildspec.json, add vmcore, register the filter, expose the three sliders.",
+        "Implement the thread model and parameter smoothing."
+      ],
+      "exit": "Filter loads, processes live audio for 1 hour with no glitches."
+    },
+    {
+      "phase": 6,
+      "name": "Validation and tuning",
+      "tasks": ["Run the validation matrix", "Tune default slider values and gate thresholds from the data"],
+      "exit": "All hard criteria pass; soft criteria recorded."
+    },
+    {
+      "phase": 7,
+      "name": "App 2 integration",
+      "tasks": ["Add isolation ahead of voice match", "Re-run the matrix with isolation on"],
+      "exit": "Combined chain passes the same criteria."
+    }
+  ],
+
+  "validation": {
+    "report_card_metrics": [
+      "15 band powers, normalised (compare to reference)",
+      "mean absolute band error, maximum band error",
+      "integrated loudness (BS.1770 gated)",
+      "true peak (4x oversampled)",
+      "loudness range",
+      "speech RMS P70 and speech spread (same gate as S1)",
+      "CPU percent of one core",
+      "added latency in ms"
+    ],
+    "hard_criteria": {
+      "true_peak_dbtp_max": -2.0,
+      "loudness_error_lu_max": 0.5,
+      "dropouts_or_clicks_in_1h": 0,
+      "added_latency_ms_max": 5,
+      "cpu_percent_of_one_core_max": 3
+    },
+    "soft_criteria": {
+      "mean_abs_band_error_db_max_plugin": 2.0,
+      "max_band_error_db_max_plugin": 4.0,
+      "mean_abs_band_error_db_max_script": 3.0,
+      "speech_spread_error_db_max_at_dynamics_100": 1.5
+    },
+    "test_matrix": [
+      "Laptop microphone, quiet room",
+      "Headset microphone, quiet room",
+      "Same headset, moderate background noise",
+      "The reference recorder itself, if its raw WAV is available (sanity: corrections should be small)",
+      "A second, very different voice",
+      "Sample rates 44.1 kHz and 48 kHz",
+      "Mono and stereo sources",
+      "Slider extremes: all at 0, all at 100, level at both ends",
+      "Silence for 10 minutes, then speech (no gain pumping)",
+      "8-hour soak"
+    ],
+    "listening_protocol": "A/B at matched loudness only, five fixed sentences, three listeners if possible. Numbers decide pass or fail; listening decides tuning.",
+    "evidence_rule": "Every claim of the form 'it matches' must point to a report card file. No report card, no claim."
+  },
+
+  "failure_modes": [
+    {
+      "id": "F1",
+      "trigger": "Our analyser does not agree with the analyser that produced the reference numbers (band edges, window, gate).",
+      "symptom": "Consistent tone error of a few dB even on the reference recorder's own audio.",
+      "probability_estimate": "about 50 percent without the oracle script, about 15 percent with it",
+      "branch": "If match_voice.py is available: align to it in Phase 2. If not: ship with the sliders as the correction and state the mismatch openly."
+    },
+    {
+      "id": "F2",
+      "trigger": "The voice differs a lot from the reference speaker (pitch, vocal tract).",
+      "symptom": "Heavy low boost, boomy or hollow sound at 100 percent tone.",
+      "probability_estimate": "about 35 percent for a different speaker class, lower for a similar voice",
+      "branch": "Rely on the clamp, the 1-octave smoothing and the 80 percent default. If it still sounds wrong at 100, offer a future 'mic only' mode that matches only above 1 kHz."
+    },
+    {
+      "id": "F3",
+      "trigger": "Noisy room contaminates the learned spectrum.",
+      "symptom": "Correction boosts noise; hiss or hum grows.",
+      "probability_estimate": "about 40 percent on a laptop mic in an ordinary room",
+      "branch": "Branch on measured SNR. If speech-to-floor ratio is under 15 dB, halve the correction automatically and log a warning. Recommend App 2 ahead of this filter."
+    },
+    {
+      "id": "F4",
+      "trigger": "Learning is run while music, a second voice or a game is on the same source.",
+      "symptom": "Wrong curve locked in.",
+      "probability_estimate": "about 20 percent",
+      "branch": "Lock after learning. Reject frames without a stable pitch between 70 and 300 Hz. Re-learn button resets."
+    },
+    {
+      "id": "F5",
+      "trigger": "Cold start or long silence.",
+      "symptom": "Loud burst or gain pumping when speech resumes.",
+      "probability_estimate": "about 25 percent in a first build",
+      "branch": "Neutral until learned; hold gain when no speech; limiter always last."
+    },
+    {
+      "id": "F6",
+      "trigger": "Large EQ boosts on a hot input.",
+      "symptom": "Clipping before the limiter.",
+      "probability_estimate": "about 15 percent",
+      "branch": "Reduce S1 output by the largest positive cascade gain over the 100 to 4000 Hz speech range, then rely on S3 and S4."
+    },
+    {
+      "id": "F7",
+      "trigger": "Compressor on breath and room noise.",
+      "symptom": "Pumping and audible noise swell between words.",
+      "probability_estimate": "about 30 percent",
+      "branch": "Detector uses the S1 voice gate; below the gate the compressor holds its last gain; lengthen release to 200 ms if pumping persists."
+    },
+    {
+      "id": "F8",
+      "trigger": "Anything slow on the audio thread.",
+      "symptom": "Crackles or dropouts in the OBS meter.",
+      "probability_estimate": "about 20 percent in a first build",
+      "branch": "Profile; remove allocations and locks; move work to the analysis thread; fall back to bypass if a block overruns."
+    },
+    {
+      "id": "F9",
+      "trigger": "Sample rate is 44.1 kHz, or changes while running.",
+      "symptom": "Wrong filter shapes, especially near the top band.",
+      "probability_estimate": "about 15 percent",
+      "branch": "Recompute all coefficients from the live rate; relearn on change."
+    },
+    {
+      "id": "F10",
+      "trigger": "Stereo or multichannel source.",
+      "symptom": "Image shifts or channels compress differently.",
+      "probability_estimate": "about 15 percent",
+      "branch": "Same coefficients on every channel; link the detectors; analysis on the channel average."
+    },
+    {
+      "id": "F11",
+      "trigger": "OBS updates to a new major version.",
+      "symptom": "Plugin fails to load.",
+      "probability_estimate": "about 30 percent per major release",
+      "branch": "Rebuild against the new libobs by bumping the version in buildspec.json; keep the DSP library untouched."
+    },
+    {
+      "id": "F12",
+      "trigger": "Python script cannot load in OBS.",
+      "symptom": "Script list shows an error or the Python Settings tab says not loaded.",
+      "probability_estimate": "about 35 percent for a first-time setup",
+      "branch": "Point OBS at an installed Python in Python Settings; install numpy into that interpreter; check the OBS log for the first error line."
+    },
+    {
+      "id": "F13",
+      "trigger": "Built-in filter ids or setting keys differ from the recalled ones.",
+      "symptom": "Script creates no filter or the sliders do nothing.",
+      "probability_estimate": "about 25 percent",
+      "branch": "Phase 1 discovery replaces recall with dumped facts before any build."
+    },
+    {
+      "id": "F14",
+      "trigger": "Other gain, compressor, limiter or noise filters already on the source.",
+      "symptom": "Doubled processing; loudness misses target.",
+      "probability_estimate": "about 40 percent on an existing setup",
+      "branch": "Document the chain order; the script warns when it finds other dynamics filters on the same source."
+    },
+    {
+      "id": "F15",
+      "trigger": "Expectation that matching equals better.",
+      "symptom": "Result still sounds noisy or thin on a poor microphone.",
+      "probability_estimate": "about 60 percent for a laptop microphone",
+      "branch": "State plainly: EQ and dynamics reshape what the microphone captured. They cannot add detail the microphone never recorded or remove room reverb."
+    }
+  ],
+
+  "probability_summary": {
+    "note": "All figures are my estimates, not measurements.",
+    "template_builds_and_loads_first_day_on_windows": "about 70 percent; about 95 percent within a week",
+    "plugin_reaches_soft_criteria_with_similar_voice_and_decent_mic": "about 70 percent",
+    "plugin_reaches_soft_criteria_with_very_different_voice": "about 40 percent",
+    "script_reaches_script_criteria_mean_error_3_db": "about 25 percent",
+    "all_hard_criteria_pass_after_phase_6": "about 80 percent"
+  },
+
+  "scope_limits_v1": [
+    "No custom window or graph. OBS's own properties panel only.",
+    "No VST or other plugin hosting.",
+    "No per-band user controls.",
+    "No macOS or Linux build in v1.",
+    "No cloud or network calls."
+  ],
+
+  "licensing": "The template and libobs are GPL-2.0. Personal use has no publishing obligation. If you distribute a binary, you must offer the source under GPL-compatible terms. Vendored libraries must be GPL-compatible (MIT, BSD).",
+
+  "open_questions": [
+    "Can you share matcher/match_voice.py (and, if you still have it, the original 211018-075300.WAV)?",
+    "Which operating system runs OBS for this project?",
+    "Which microphones will it be used with most?",
+    "Is the Re-learn button acceptable, or do you want strictly three controls?",
+    "Do you want the final level target at the reference -17.92 LUFS or at -16 LUFS by default?"
+  ],
+
+  "next_step": "Answer the open questions, then start Phase 1 (discovery) and Phase 2 (offline analyser). Nothing is built before those two phases pass their exit criteria."
+}

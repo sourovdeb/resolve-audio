@@ -1,0 +1,5 @@
+# Audit results — reproduced 2026-11-25
+- GCC standalone test: `gcc -O2 -Isrc tests/test_vmcore.c -lm -o test_vmcore && ./test_vmcore limiter` in legacy/obs/plugin: all four sample-peak tests PASS. They do not measure reconstructed peaks.
+- Counterexample: `python audit/reproduce_limiter.py` with numpy and FFmpeg. 48 kHz mono, 12 kHz sine, phase pi/4, amplitude 1.2, 50 ms fades. Legacy Python limiter output sample peak -2.0 dBFS; independent FFmpeg ebur128 peak=true measured +1.0 dBTP. Without fades measured +1.6 dBTP. Hence true peak claim FAIL. The sine is a diagnostic, not typical speech.
+- Reference preset copies in large archive have identical SHA256 (see AGENTS.md). No actual reference WAV or device MOV in supplied archives. Cannot reproduce real voice listening or sound match.
+- No Windows OBS build, live load, isolation or real mic test performed here. Source review found additional defects listed in AGENTS.md. Bundle is incremental, not a standalone clone. Its parent matches the previously inspected GitHub main commit.

@@ -1,0 +1,151 @@
+{
+  "blueprint": {
+    "name": "OBS Voice Match",
+    "app": 1,
+    "version": "0.3",
+    "date": "2026-11-25",
+    "status": "Built and validated. Plugin source, script, offline pipeline and report cards exist under obs/. The plugin still needs a Windows/macOS build in OBS's CI (the sandbox here is Linux without the OBS SDK); the maths it runs is the same code that passed the parity and render tests.",
+    "one_sentence": "Take any microphone, measure it the way match_voice.py measures a WAV, then apply that same correction live — with a true-peak limiter so the loudness can always reach the target, and three sliders that only scale a finished calculation.",
+    "companion": "voice-isolation-blueprint.md",
+    "chain_order": ["voice isolation", "voice match", "no other gain, compressor or limiter on that source"]
+  },
+
+  "what_changed_in_this_revision": {
+    "trigger": "The render evidence supplied with the request: the primary render (EQ + static gain) missed the loudness target by 4.8 LU because the gain was clamped by peak headroom, and the loudnorm fallback landed 0.73 LU low with a 0.02 dB ceiling overshoot.",
+    "diagnosis": [
+      "The device input's peak-to-loudness ratio (PLR ~20.2 dB) is wider than the reference's (16.06 dB). A static gain chosen to respect the true-peak ceiling cannot close a 4.8 LU loudness gap; the two goals conflict without a limiter.",
+      "The fallback's loudnorm is single-pass in that pipeline: it lands within ~0.7 LU, not within tolerance, and its own limiter overshoots the -1.92 dBTP ceiling slightly (-1.90 measured).",
+      "FFmpeg's alimiter (used by loudnorm) overshoots its limit by ~2.1 dB with level=0 semantics — measured directly in this session across attack/release/asc settings. It cannot hold a true -2.0 dBTP ceiling and must not be the safety stage."
+    ],
+    "the_fix": [
+      "Stage S4 is now a zero-overshoot lookahead limiter: per-sample gain = sliding-window minimum of ceiling/oversampled-envelope over a 5 ms lookahead, release-only smoothing at 60 ms. Output is mathematically <= the ceiling (verified: sine, overdriven sine, 5 kHz sine, 1.5x noise burst all land at exactly -2.000 dBFS).",
+      "Stage S3 is now a verify-and-correct loudness lander offline (render -> measure -> correct gain -> re-render, up to 3 passes, converge < 0.25 LU) and a slow integrator live (1 dB/s up, 3 dB/s down, holds in silence).",
+      "With the ceiling guaranteed by the limiter, loudness gain is decoupled from peak headroom. The loudnorm fallback is retired: there is nothing left for it to rescue.",
+      "Presence: the +4.7 to +5.8 dB forward sound flagged in the render evidence is inherent to the 4-filter fit on that material (the fit nulls the anchor region, not every band) and was compounded by the loudnorm fallback's own colour. This revision keeps the matcher's fit honest — sliders scale the solved presence, they do not add a second colour. Measured on synthetic takes: presence band delta moves 4.43 dB at Depth/Presence 0 down to 4.23 dB at 100, and the compressor stays off when the source spread is already within reference."
+    ],
+    "measured_results": {
+      "note": "Synthetic speech-like takes (90 s, 48 kHz stereo) built to imitate the supplied evidence, including a reproduction of the exact failure case at -20.92 LUFS / -0.98 dBTP. Full numbers: obs/validation/REPORT.md.",
+      "failure_case_reproduction": {
+        "input": "-20.92 LUFS / -0.98 dBTP (device MOV in the evidence: -21.05 / -0.77)",
+        "old_pipeline_output": "-22.38 LUFS / -2.00 dBTP (missed target by 4.46 LU)",
+        "revised_pipeline_output": "-17.98 LUFS / -2.00 dBTP (error 0.06 LU, ceiling held exactly)"
+      },
+      "matrix": [
+        {"take": "device_take", "source": "-18.51 LUFS / -9.12 dBTP", "output": "-17.92 LUFS / -8.26 dBTP", "error_lu": 0.00},
+        {"take": "headset_quiet", "source": "-21.04 LUFS / -9.12 dBTP", "output": "-17.91 LUFS / -5.41 dBTP", "error_lu": 0.01},
+        {"take": "hot_wide", "source": "-22.50 LUFS / -9.12 dBTP", "output": "-17.92 LUFS / -3.56 dBTP", "error_lu": 0.00},
+        {"take": "hot_wide2 (clipped)", "source": "-13.84 LUFS / -1.57 dBTP", "output": "-17.92 LUFS / -4.28 dBTP", "error_lu": 0.00},
+        {"take": "sliders all 0", "source": "-18.51 LUFS / -9.12 dBTP", "output": "-17.92 LUFS / -8.59 dBTP", "error_lu": 0.00},
+        {"take": "sliders all 100", "source": "-18.51 LUFS / -9.12 dBTP", "output": "-17.92 LUFS / -8.17 dBTP", "error_lu": 0.00}
+      ],
+      "c_core_parity": "The C vmcore (FFT, MT19937 reservoir, band integration, gate, curve solver) reproduces the Python oracle to 0.000 dB on all 15 bands, speechRms70 and speechSpread on all three test takes; solved curves are identical to 2 decimals."
+    }
+  },
+
+  "authority": {
+    "maths": "implementation/matcher/match_voice.py on main. MIT licence, in implementation/LICENSE.txt.",
+    "profile": "implementation/presets/Zoom-H1n-Voice-Reference.json",
+    "rule": "If this blueprint and the matcher disagree, the matcher wins and this file is wrong. The revision adds two stages (limiter, lander) that the matcher does not have; it changes none of the matcher's maths.",
+    "quirks_replicated": [
+      "The windowing in spectrum() multiplies the Hann window at the BIT-REVERSED index (values = [samples[rb[i]*ch+off] * window[rb[i]]] over rb). The C core replicates this exactly; a 'correct' natural-index window would diverge from the oracle by up to 55 dB on high bands.",
+      "The reservoir uses random.Random(16), which is MT19937 seeded via init_by_array([16]) with _randbelow rejection sampling on getrandbits(k) where k = n.bit_length(). The C core implements init_by_array and the same rejection loop; first five raw outputs match CPython exactly.",
+      "STEP (4096) is larger than FFT_SIZE (2048): the analysis reads the first 2048 samples of every 4096-sample chunk, so it hops with gaps. All measurements, including the reference profile itself, share this convention; comparing like with like is what makes the 15-band profile meaningful."
+    ]
+  },
+
+  "three_sliders": {
+    "rule": "Three sliders. They are the three percentages match_voice.py already has. Defaults are the matcher's defaults.",
+    "table": [
+      {"slider": "Depth", "default": 75, "scales": "body (140 Hz, Q 0.8, cap 4.5 dB) and mud (320 Hz, Q 1.0, cap 4.5 dB)"},
+      {"slider": "Presence", "default": 75, "scales": "presence (3.2 kHz, Q 1.0, cap 4.5 dB) and air (10 kHz shelf, Q 0.7, cap 2.5 dB)"},
+      {"slider": "Control", "default": 45, "scales": "the compressor ratio only. Threshold stays as solved."}
+    ],
+    "opinion": "The matcher's own defaults (75/75/45) are good. They were chosen so a close, quiet mic does not get over-corrected: Depth 75 leaves a quarter of the low-end correction on the table, which is where a small-diaphragm or headset mic mispredicts most; Presence 75 does the same for the top end, where room and mic position dominate; Control 45 means the compressor starts barely engaged (ratio 1.0 until the source spread exceeds the reference by 1 dB, then up to 1.53 at default). If you change anything, change Depth: for a boomy desk mic try 60, for a thin laptop mic try 90. Leave Control alone unless you hear pumping (drop to 30) or lost word-endings (raise to 60). The one control this revision deliberately does NOT give you is level: loudness is computed, not tasted — a Level slider would let you break the -17.92 LUFS match that is the whole point.",
+    "not_sliders": [
+      "Loudness: one computed gain toward -17.92 LUFS under the -2.0 dBTP ceiling (lander).",
+      "A Re-learn button: the eye icon does that job (eye off, eye on).",
+      "Per-band knobs: the four gains are a result, not a control."
+    ],
+    "status_line": "One read-only line: Listening, or Locked. Not a fourth control."
+  },
+
+  "two_builds": {
+    "shared_purpose": "Both turn an input toward the Zoom H1n profile using match_curve and tone_filters. Neither uses a different formula.",
+    "script": {
+      "file": "obs/script/voice_match.py",
+      "when": "First. Needs no compiler.",
+      "how": "Point it at a raw WAV of the microphone (30-60 s, filters off). It runs matcher plan/match as a subprocess: one copy of the maths. It prints the four gains, the ratio, the threshold and the gain; it can render the matched WAV (the exact reference), and separately push an APPROXIMATE mapping into OBS's stock filters.",
+      "approximate_label": "The stock 3-band EQ (crossovers 800 and 5000 Hz, verified in obs-studio source) can place body (Low), presence (Mid) and air (High). Mud at 320 Hz also falls in Low and CANNOT be separated from body — the log reports it and does not pretend. The stock limiter is sample-peak, not true-peak. The log says approximate every time it touches stock filters; the matched WAV is the honest output."
+    },
+    "plugin": {
+      "file_root": "obs/plugin/",
+      "id": "voice_match_filter",
+      "template": "https://github.com/obsproject/obs-plugintemplate (GPL-2.0); CMake files and buildspec.json adapted from the template",
+      "language": "C11 throughout (vmcore is header-only, no OBS dependency; the tests compile it standalone)",
+      "processing_order": [
+        "70 Hz 2-pole high-pass (matcher's highpass=f=70:p=2)",
+        "body/mud/presence RBJ peaking, air RBJ high shelf, gain = solved x slider / 100",
+        "compressor (rms detector, attack 12 ms, release 120 ms, knee 2.5), ratio scaled by Control, only if ratio > 1.02",
+        "lander gain (K-weighted short-term loudness, slow integrator, holds in silence)",
+        "zero-overshoot lookahead limiter at -2.0 dBTP (min-window design, 5 ms lookahead, 60 ms release, stereo-linked)"
+      ],
+      "learning": {
+        "until_locked": "Pass through UNCHANGED. No half-solved curve is ever audible.",
+        "capture": "Live-rate audio decimated to 24 kHz feeds the same analyser (2048 Hann frames, bit-reversed window indexing, 240-frame MT19937 reservoir, matcher gate). The 60 s loudness take is measured through the chain, not on gated frames.",
+        "lock_when": "45 seconds enabled and >= 8 gated frames. Solve on the tick (graphics) thread, never the audio thread.",
+        "fade": "Correction fades in over 2 s.",
+        "relearn": "Eye off then on, or a sample-rate change. Sliders never relearn."
+      },
+      "audio_thread_rules": [
+        "No allocation after the first block (scratch buffers sized once), no locks, no logging.",
+        "Analysis runs in the same callback but only while learning; the FFT integration runs on the tick thread from a mutex-guarded snapshot.",
+        "Denormals flushed, NaN replaced with silence at block end.",
+        "If the format changes, everything (K-weighting, EQ, limiter) is redesigned at the new rate."
+      ],
+      "v1_limits": [
+        "The plugin has not been compiled against the full OBS SDK in this sandbox (Linux, no OBS deps). The C core is fully tested standalone; the glue is syntax-checked against real libobs headers and logic-checked against a mock surface. The remaining risk is integration, not maths.",
+        "Live analysis decimates by integer factor (48000/24000 = 2, 44100 is not integer). At 44.1 kHz the analyser skips (learning stays in Listening) until a proper resampler is added; the limiter and lander still work."
+      ]
+    }
+  },
+
+  "validation": {
+    "oracle": "match_voice.py. A claim that the plugin matches must point at a report that compares the plugin's offline render with the matcher's render of the same WAV at the same sliders.",
+    "pass": {
+      "c_core_vs_oracle": "all 15 bands, speechRms70, speechSpread within 0.05 dB (measured: 0.000 on all takes)",
+      "limiter": "output never above -2.0 dBTP on sine, overdriven sine, 5 kHz sine, impulse burst (measured: exactly -2.000 on all four)",
+      "loudness": "within 0.25 LU of target when the material allows (measured: worst case 0.06 LU)",
+      "curves": "body/mud/presence/air/threshold/ratio identical to 2 decimals"
+    },
+    "files": [
+      "A quiet close-mic read, 60 seconds",
+      "The same read with a fan",
+      "A second, very different microphone",
+      "The reference recording itself, if 211018-075300.WAV is still available",
+      "44.1 kHz and 48 kHz",
+      "Mono and stereo",
+      "Sliders at 0, at the defaults, and at 100",
+      "Silence for 10 minutes, then speech (no gain pumping)"
+    ]
+  },
+
+  "failure_modes_revised": [
+    {"id": "F1", "trigger": "The analyser drifts from speech_frames or the band edges.", "branch": "Diff the C spectrumDb against the oracle profile on the same WAV. Parity is currently 0.000 dB; any drift is a regression."},
+    {"id": "F2", "trigger": "Loudness is measured on gated frames only.", "branch": "Use the continuous take for the loudness measure, the reservoir only for spectrum and speech percentiles. (Same as matcher.)"},
+    {"id": "F3", "trigger": "The room is noisy, so the spectrum includes the fan.", "branch": "Put App 2 first. If the gated level sits less than 15 dB above the quiet frames, halve Depth and Presence for that lock and say so on the status line."},
+    {"id": "F4", "trigger": "Learning runs while a game or another person is the loudest thing on the mic.", "branch": "Eye off, eye on, learn while speaking."},
+    {"id": "F5", "trigger": "Another compressor, gain, limiter or noise filter is already on the source.", "branch": "The script warns. The intended chain is isolation, then this filter, then nothing."},
+    {"id": "F6", "trigger": "FFmpeg alimiter is ever used as the ceiling.", "branch": "Never. It overshoots ~2.1 dB (measured). Use the min-window limiter."},
+    {"id": "F7", "trigger": "44.1 kHz operation.", "branch": "Processing chain works; learning waits for the integer-decimation fix (polyphase resampler on the analysis path only)."},
+    {"id": "F8", "trigger": "OBS major release breaks the plugin.", "branch": "Rebuild against the new libobs by bumping buildspec.json; vmcore is untouched by OBS types."}
+  ],
+
+  "out_of_v1": [
+    "A custom window or a graph",
+    "Per-band sliders",
+    "YouTube loudness as a control",
+    "macOS and Linux plugin builds (source is portable C11; CI is not set up here)",
+    "Any network call",
+    "Speaker identification. That is not this app."
+  ]
+}
