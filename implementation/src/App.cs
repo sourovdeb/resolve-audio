@@ -102,7 +102,7 @@ namespace VoiceMacro {
             var profileButton=ButtonAt("Track profiles  ▾",24,392,193,delegate{});
             var profileMenu=BuildProfileMenu();
             profileButton.Click+=delegate{if(!busy)profileMenu.Show(profileButton,new Point(0,profileButton.Height));};
-            ButtonAt("Match WAV…",234,392,192,OpenMatcher);
+            ButtonAt("Match WAV…",234,392,192,delegate{OpenMatcher(false);});
             ButtonAt("Resolve tools…",443,392,193,ShowResolveTools);
             auto=new CheckBox{Text="Apply on release",Location=new Point(24,440),AutoSize=true};Controls.Add(auto);
             auto.CheckedChanged+=delegate{if(auto.Checked&&!Model.Keys(null).All(verified.Contains)){auto.Checked=false;status.Text="Verify EQ and Dynamics first.";}};
@@ -111,6 +111,7 @@ namespace VoiceMacro {
             RefreshSummary();
             FormClosing+=delegate{if(busy)return;try{JsonFile.Write(Paths.SessionFile,Current());}catch{}};
             Disposed+=delegate{profileMenu.Dispose();};
+            Shown+=delegate {BeginInvoke(new Action(delegate {OpenMatcher(true);}));};
         }
         private Dial MakeDial(string name,string desc,int x,double val) {
             var d=new Dial{Caption=name,Description=desc,Location=new Point(x,119),Value=val,AccessibleName=name};Controls.Add(d);
@@ -253,8 +254,9 @@ namespace VoiceMacro {
                 try{SetMatch(JsonFile.Read<MatchCurve>(dialog.FileName));}catch(Exception e){Error(e);}
             }
         }
-        private void OpenMatcher() {
-            using(var dialog=new MatcherForm(Current())) {
+        private void OpenMatcher(bool quickStart) {
+            var strength=quickStart ? new Preset{depth=75,presence=75,control=45} : Current();
+            using(var dialog=new MatcherForm(strength,quickStart)) {
                 if(dialog.ShowDialog(this)==DialogResult.OK)SetMatch(dialog.Curve);
             }
         }

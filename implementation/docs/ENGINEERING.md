@@ -7,6 +7,8 @@ Date: 25 November 2026.
 
 The track controller writes parameters through Fairlight's interface. The WAV matcher uses a separate signal-processing path. It can render a WAV or calculate parameters for Fairlight.
 
+The application now opens the matcher on launch. It selects the bundled numerical reference and requests a target WAV. On selection, it renders a new WAV with a fresh filename. The separate `voice_macro_console.py` selects a linked WAV from the active Resolve timeline when available, then imports the rendered file into the Media Pool. The optional `--resolve-level` mode changes clip gain through `AnalyzeAudioLevels` and `SetProperties`, or through the user's `set_gain_db` helper when that module is supplied. The helper's description arrived without its source file.
+
 No EQ/Dynamics setters were established.
 That is this investigation's finding.
 It isn't proof against future APIs.

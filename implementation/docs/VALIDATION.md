@@ -7,6 +7,9 @@
 | Python and FFmpeg matcher | Six tests passed |
 | Installer manifest and package entry | IDs and entry file agree |
 | Electron launcher JavaScript | Syntax checked |
+| Console match with bundled numerical reference | Completed WAV render and peak check |
+| Automatic target chooser in Windows GUI | Windows host test pending |
+| Resolve timeline clip lookup and Media Pool import | Resolve host test pending |
 | Installer and Workflow menu in Resolve | Windows host test pending |
 | Numeric field operations in Fairlight | Windows host test pending |
 

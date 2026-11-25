@@ -19,7 +19,7 @@ namespace VoiceMacro {
         private bool running;
         public MatchCurve Curve { get; private set; }
 
-        public MatcherForm(Preset strength) {
+        public MatcherForm(Preset strength,bool quickStart=false) {
             this.strength=strength;
             Text="Match WAV";
             ClientSize=new Size(665,390);
@@ -52,6 +52,18 @@ namespace VoiceMacro {
                 "WAV matching needs Python and FFmpeg. See START-HERE."};
             Controls.Add(report);
             FormClosing+=delegate(object sender,FormClosingEventArgs e){if(running)e.Cancel=true;};
+            if(quickStart)Shown+=async delegate {
+                using(var picker=new OpenFileDialog{Title="Choose the voice WAV to match",Filter="WAV audio|*.wav",CheckFileExists=true}) {
+                    if(picker.ShowDialog(this)!=DialogResult.OK)return;
+                    input.Text=picker.FileName;
+                }
+                if(!Ready(true))return;
+                string parent=Path.GetDirectoryName(input.Text);
+                string stem=Path.GetFileNameWithoutExtension(input.Text);
+                string output=Path.Combine(parent,stem+"-VoiceMacro.wav");
+                for(int index=2;File.Exists(output);index++)output=Path.Combine(parent,stem+"-VoiceMacro-"+index+".wav");
+                await RenderTo("voice",output);
+            };
         }
 
         private void AddLabel(string text,int x,int y,int width) {
@@ -101,14 +113,18 @@ namespace VoiceMacro {
             using(var dialog=new SaveFileDialog{Filter="WAV audio|*.wav",OverwritePrompt=false,
                 FileName=Path.GetFileNameWithoutExtension(input.Text)+"-matched.wav",InitialDirectory=Path.GetDirectoryName(input.Text)}) {
                 if(dialog.ShowDialog(this)!=DialogResult.OK)return;
-                var args=Args("match",dialog.FileName);
-                args.AddRange(new[]{"--mode",mode,"--loudness",LoudnessMode,"--depth",Model.Number(strength.depth),
-                    "--presence",Model.Number(strength.presence),"--control",Model.Number(strength.control)});
-                try {
-                    string result=await Run(args);
-                    report.Text=result.Trim()+Environment.NewLine+"Saved: "+dialog.FileName;
-                }catch(Exception e){report.Text=e.Message;}
+                await RenderTo(mode,dialog.FileName);
             }
+        }
+
+        private async Task RenderTo(string mode,string output) {
+            var args=Args("match",output);
+            args.AddRange(new[]{"--mode",mode,"--loudness",LoudnessMode,"--depth",Model.Number(strength.depth),
+                "--presence",Model.Number(strength.presence),"--control",Model.Number(strength.control)});
+            try {
+                string result=await Run(args);
+                report.Text=result.Trim()+Environment.NewLine+"Saved: "+output;
+            }catch(Exception e){report.Text=e.Message;}
         }
 
         private async Task MakePlan() {

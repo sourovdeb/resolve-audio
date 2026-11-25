@@ -26,7 +26,7 @@ try {
     if (Get-Process -Name VoiceMacro -ErrorAction SilentlyContinue) {
         throw 'Close VoiceMacro before installing.'
     }
-    $runtime = @('VoiceMacro.exe', 'VoiceMacro.exe.config', 'START-HERE.html')
+    $runtime = @('VoiceMacro.exe', 'VoiceMacro.exe.config', 'START-HERE.html', 'voice_macro_console.py', 'Run-VoiceMacro.cmd')
     foreach ($name in ($runtime + @('matcher\match_voice.py', 'install\VoiceMacro.lua', 'install\Install-Matcher-Tools.cmd'))) {
         if (-not (Test-Path -LiteralPath (Join-Path $package $name) -PathType Leaf)) {
             throw "File missing: $name. Extract the whole ZIP before installing."

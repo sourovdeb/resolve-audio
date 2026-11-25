@@ -1,52 +1,41 @@
-# VoiceMacro 0.4
+# VoiceMacro
 
-For DaVinci Resolve Studio 21 on Windows. Open [START-HERE.html](START-HERE.html) for installation, mapping, and the steps for each Resolve menu.
+The bundled [Zoom H1n reference](presets/Zoom-H1n-Voice-Reference.json) is selected on launch.
 
-## Install
+## Start on Windows
 
-1. Extract the whole ZIP.
-2. Close Resolve and VoiceMacro.
-3. Run `install\Install-VoiceMacro.cmd`.
-4. Restart Resolve Studio.
-5. Open **Workspace → Workflow Integrations → VoiceMacro**.
+1. Extract the ZIP.
+2. Run `VoiceMacro.exe`.
+3. Choose the voice WAV. Matching starts.
+4. Import the new `*-VoiceMacro.wav` into Resolve and listen.
 
-The installer also adds **Workspace → Scripts → VoiceMacro** for the current user. The ZIP includes `VoiceMacro.exe` for running without installation. The launcher uses Resolve's Workflow Integration format. The app uses .NET Framework 4.8. Windows and Resolve testing remains pending.
+Install Python 3 and FFmpeg if prompted. You can run `install\Install-Matcher-Tools.cmd` to install them with Windows Package Manager. The app is a standalone Windows program. The `install\Install-VoiceMacro.cmd` menu entry is optional.
 
-## Controls
+The new WAV keeps the original file's duration, channels, and sample rate. The reference is a numerical JSON profile. The original reference WAV is not needed. The matcher measures the target, calculates a bounded EQ correction, uses gentle compression when indicated by the measurements, and checks the resulting true peak. The file's loudness may remain below the requested target when peaks limit gain.
 
-| Control | Use |
-|---|---|
-| Depth, Presence, Control | Shape voice or scale a WAV-derived match. |
-| Track profiles | Copy and paste mapped voice, EQ, compressor, or fader values. |
-| Match WAV | Match voice, EQ, or level. Create a new WAV or load a curve for the knobs. |
-| Resolve tools | Find the built-in capture, paste, and save commands. |
-| Save | Store knobs and the loaded match curve as JSON. |
+## Run from a console
 
-For direct Fairlight processing, configure the band frequencies and compressor switches in **Recipe**. Map the numeric fields in **Setup** and verify each group. **Apply** writes mapped values and reads them back. The fader mapping is optional and operates through **Track profiles**. For full module copying, use Resolve's mixer graph context menus. For saving a Resolve preset, use **Fairlight → Presets Library**. For a mixer snapshot, use **Fairlight → Automation → Mix List → Save Mix**.
+Double-click `Run-VoiceMacro.cmd` while Resolve is open. The script looks for linked WAV clips in the current timeline. It chooses the single clip automatically or asks you to choose among multiple clips. It writes a new WAV and imports it into the Media Pool.
 
-## Match WAVs with Python
-
-Requirements for WAV matching: Python 3.9+ and FFmpeg with `ffprobe` on PATH. The `install\Install-Matcher-Tools.cmd` helper uses Windows Package Manager. Restart Resolve after installing dependencies. The matcher runs without models or network access.
+Alternatively, give it a file path.
 
 ```powershell
-py -3 matcher\match_voice.py profile "reference.wav" --output "Reference-Profile.json"
-py -3 matcher\match_voice.py match "target.wav" --reference "Reference-Profile.json" --output "matched.wav" --loudness youtube
-py -3 matcher\match_voice.py plan "target.wav" --reference "Reference-Profile.json" --output "Track-Plan.json"
+py -3 voice_macro_console.py --input "C:\recordings\voice.wav"
 ```
 
-- The reference argument accepts a speech WAV or a profile from `profile`.
-- Select `--mode voice`, `--mode eq`, or `--mode level`. `voice` is the default.
-- `--loudness reference` is the default. `youtube` targets −16 LUFS with a −2 dBTP ceiling. `keep` aims for the target's original measured loudness. `eq` always uses the original measured loudness as its target.
-- `presets/Zoom-H1n-Voice-Reference.json` includes the measured reference and its use instructions. Select it without supplying the WAV.
-- `--depth`, `--presence`, and `--control` range from 0 to 100. WAV output retains sample rate, channels, and frame count. It uses 24-bit PCM and a new filename.
-- Use **Track profiles → Load WAV match plan** to import `Track-Plan.json`, or select **Match WAV → Use with knobs**. Choose an isolated target speech recording. The plan uses one EQ curve for the track. Check Resolve's final meter separately.
+The Python console script works without Resolve when you pass `--input`. It uses the same bundled reference and audio matching engine. `--loudness youtube` selects the −16 LUFS starting target. The output is limited to −2 dBTP. Default loudness follows the reference.
 
-## Build and verify
+For an existing Resolve timeline clip, `--resolve-level` changes its clip gain only. It uses the `AnalyzeAudioLevels` and `SetProperties` calls listed in the supplied function notes. If your `resolve_audio_tools.py` is available, pass `--tools "C:\path\resolve_audio_tools.py"` to use its `set_gain_db` wrapper. The notes did not include the helper file itself. The script also works with Resolve's documented calls directly.
 
-```powershell
-dotnet build VoiceMacro.csproj -c Release
-dotnet run --project tests/Tests.csproj -c Release
-python -m unittest discover -s tests -p "test_matcher.py"
-```
+Resolve's scripting interface does not provide a per-band Fairlight EQ setter in the supplied function list. Matching tone therefore creates a WAV. The **Use with knobs** command proposes track EQ numbers for the existing mapped controller when you need that route.
 
-See [validation](docs/VALIDATION.md) for tested cases and the Windows checklist. Source is under the MIT license in [LICENSE.txt](LICENSE.txt).
+## Files
+
+- `VoiceMacro.exe` opens the matcher and starts matching after you choose a WAV.
+- `Run-VoiceMacro.cmd` opens the Python console flow.
+- `voice_macro_console.py` finds Resolve audio clips or accepts a WAV path.
+- `presets/Zoom-H1n-Voice-Reference.json` contains the measured reference and its instructions.
+- `matcher/match_voice.py` measures, matches, and writes audio.
+- `docs/VALIDATION.md` records the remaining Windows host checks.
+
+Run `py -3 voice_macro_console.py --help` for optional modes and paths.
