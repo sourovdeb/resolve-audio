@@ -37,6 +37,7 @@ py -3 matcher\match_voice.py plan "target.wav" --reference "Reference-Profile.js
 - The reference argument accepts a speech WAV or a profile from `profile`.
 - Select `--mode voice`, `--mode eq`, or `--mode level`. `voice` is the default.
 - `--loudness reference` is the default. `youtube` targets −16 LUFS with a −2 dBTP ceiling. `keep` aims for the target's original measured loudness. `eq` always uses the original measured loudness as its target.
+- `presets/Zoom-H1n-Voice-Reference.json` includes the measured reference and its use instructions. Select it without supplying the WAV.
 - `--depth`, `--presence`, and `--control` range from 0 to 100. WAV output retains sample rate, channels, and frame count. It uses 24-bit PCM and a new filename.
 - Use **Track profiles → Load WAV match plan** to import `Track-Plan.json`, or select **Match WAV → Use with knobs**. Choose an isolated target speech recording. The plan uses one EQ curve for the track. Check Resolve's final meter separately.
 

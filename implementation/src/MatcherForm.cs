@@ -32,7 +32,7 @@ namespace VoiceMacro {
 
             reference=PathRow("Reference",18,"WAV or profile|*.wav;*.json");
             string personal=Path.Combine(Paths.Root,"Reference-Profile.json");
-            string packaged=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"Reference-Profile.json");
+            string packaged=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"presets","Zoom-H1n-Voice-Reference.json");
             reference.Text=File.Exists(personal)?personal:File.Exists(packaged)?packaged:"";
             input=PathRow("Target WAV",56,"WAV audio|*.wav");
             AddLabel("Loudness",20,104,80);

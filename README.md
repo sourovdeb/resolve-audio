@@ -9,6 +9,7 @@ Three voice knobs, track profile copying, and WAV matching for Resolve Studio 21
 
 - [Install and use VoiceMacro](implementation/README.md)
 - [Standalone Python matcher](implementation/matcher/match_voice.py)
+- [WAV reference profile and instructions](implementation/presets/Zoom-H1n-Voice-Reference.json)
 - [Validation and Windows test steps](implementation/docs/VALIDATION.md)
 - [Original materials](supplied/)
 

@@ -2,4 +2,4 @@ bin/
 obj/
 __pycache__/
 *.pyc
-Reference-Profile.json
+/Reference-Profile.json

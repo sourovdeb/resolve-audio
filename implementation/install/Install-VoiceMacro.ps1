@@ -53,7 +53,7 @@ try {
         }
     }
     $personalProfile = Join-Path $localRoot 'Reference-Profile.json'
-    $includedProfile = Join-Path $package 'Reference-Profile.json'
+    $includedProfile = Join-Path $package 'presets\Zoom-H1n-Voice-Reference.json'
     if ((Test-Path -LiteralPath $includedProfile -PathType Leaf) -and -not (Test-Path -LiteralPath $personalProfile)) {
         Copy-Item -LiteralPath $includedProfile -Destination $personalProfile
     }
