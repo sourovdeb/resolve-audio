@@ -1,0 +1,28 @@
+PASS Reject nonfinite and invalid presets
+PASS Zero knobs remove macro gains
+PASS Knob domains stay bounded
+PASS Independent knob domains
+PASS Monotonic controls across travel
+PASS Parse Resolve units and decimals
+PASS Reject ambiguous clipboard text
+PASS Missing mapping prevents writes
+PASS Focus rejection prevents writes
+PASS Clipboard rejection prevents writes
+PASS Backup failure prevents writes
+PASS Backup precedes writes
+PASS Readback mismatch stops writes
+PASS Final readback detects field aliasing
+PASS Interrupted batch preserves recovery data
+PASS Unchanged values produce no writes
+PASS Restore recovers earlier values
+PASS Group updates preserve unrelated fields
+PASS Invalid targets fail before mutation
+PASS Preset roundtrip and replacement
+PASS Truncated preset is rejected
+PASS Recipe marks fixed processing
+PASS Reject duplicate mapped coordinates
+PASS Reject mixed tracks within EQ
+PASS Reject off-window calibration
+PASS Accept separate EQ and dynamics
+26 TEST GROUPS PASSED
+Windows and Resolve integration: NOT TESTED HERE

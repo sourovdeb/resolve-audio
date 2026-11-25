@@ -1,8 +1,10 @@
 # Voice Macro for DaVinci Resolve
 
-This repository contains the Windows prototype and supplied materials.
+This repository contains the Windows prototype and the supplied materials.
 
-- `implementation/` — three-knob Windows controller.
+## Contents
+
+- `implementation/` — the new three-knob controller.
 - `implementation/START-HERE.html` — setup guide.
 - `implementation/VoiceMacro.exe` — compiled Windows build.
 - `implementation/src/` — source code.
@@ -11,6 +13,8 @@ This repository contains the Windows prototype and supplied materials.
 
 Target: DaVinci Resolve Studio 21 on Windows.
 
-The controller operates Fairlight through mapped mouse and keyboard input. It does not replace Fairlight's audio processors.
+The controller operates Fairlight through mapped mouse and keyboard input.
+It does not replace Fairlight's audio processors.
 
 Windows and Resolve host testing remains outstanding.
+The repository records that limitation.

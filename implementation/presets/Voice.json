@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "name": "Voice",
+  "depth": 35,
+  "presence": 25,
+  "control": 30
+}

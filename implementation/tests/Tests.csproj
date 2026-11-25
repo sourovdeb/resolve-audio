@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <LangVersion>5</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+  </PropertyGroup>
+  <ItemGroup><Compile Include="../src/Core.cs"/><Compile Include="Tests.cs"/></ItemGroup>
+</Project>
